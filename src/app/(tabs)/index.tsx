@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useMemo } from 'react';
 import {
   View,
   Text,
@@ -8,6 +8,7 @@ import {
   FlatList,
   StatusBar,
   Alert,
+  useWindowDimensions,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
@@ -188,6 +189,34 @@ export default function HomeScreen() {
   const [selectedFaculty, setSelectedFaculty] = useState<string | null>(null);
   const [currentTab, setCurrentTab] = useState<TabKey>('beranda');
 
+  // Dimensi jendela untuk tata letak responsif tanpa hardcode lebar piksel
+  const { width, height } = useWindowDimensions();
+  const isLandscape = width > height;
+
+  // Menentukan jumlah kolom secara responsif:
+  // - HP mode portrait (< 600px): 2 kolom
+  // - Layar sedang (HP mode landscape & tablet portrait, 600px - 899px): 3 kolom
+  // - Layar lebar (tablet landscape & desktop, >= 900px): 4 kolom
+  const numColumns = useMemo(() => {
+    if (width >= 900) return 4;
+    if (width >= 600) return 3;
+    return 2;
+  }, [width]);
+
+  // Padding horizontal responsif agar proporsional di HP maupun layar lebar/tablet
+  const horizontalPadding = useMemo(() => {
+    if (width >= 900) return 32;
+    if (width >= 600) return 24;
+    return 16;
+  }, [width]);
+
+  // Tinggi banner responsif: lebih ramping di mode landscape HP agar tidak menutupi layar
+  const bannerHeight = useMemo(() => {
+    if (isLandscape && height < 500) return 120;
+    if (width >= 900) return 180;
+    return 160;
+  }, [isLandscape, height, width]);
+
   // Handler interaksi
   const handleSearchPress = () => {
     Alert.alert('Cari Barang', 'Fitur pencarian barang bekas kampus.');
@@ -219,9 +248,29 @@ export default function HomeScreen() {
       )
     : DUMMY_PRODUCTS;
 
+  // Placeholder transparan agar kartu barang pada baris terakhir tidak melar (flex: 1)
+  // dan lebarnya tetap konsisten dengan kolom di atasnya
+  const paddedProducts = useMemo(() => {
+    if (filteredProducts.length === 0) return [];
+    const remainder = filteredProducts.length % numColumns;
+    if (remainder === 0) return filteredProducts;
+    const dummyCount = numColumns - remainder;
+    const dummies: ProductItem[] = Array.from({ length: dummyCount }, (_, i) => ({
+      id: `__dummy_${i}`,
+      title: '',
+      price: 0,
+      faculty: '',
+      condition: '',
+      location: '',
+      sellerName: '',
+      imageUrl: '',
+    }));
+    return [...filteredProducts, ...dummies];
+  }, [filteredProducts, numColumns]);
+
   // Komponen Header dan Bagian Atas FlatList
   const renderListHeader = () => (
-    <View style={styles.headerContentWrapper}>
+    <View style={[styles.headerContentWrapper, { paddingHorizontal: horizontalPadding }]}>
       {/* 1. Header: Nama App + Ikon Cari */}
       <View style={styles.appHeader}>
         <View style={styles.brandContainer}>
@@ -265,8 +314,8 @@ export default function HomeScreen() {
         </View>
       </View>
 
-      {/* 4. Banner Gambar */}
-      <View style={styles.bannerContainer}>
+      {/* 4. Banner Gambar (Tinggi responsif di portrait/landscape) */}
+      <View style={[styles.bannerContainer, { height: bannerHeight }]}>
         <Image
           source={{
             uri: 'https://images.unsplash.com/photo-1523240795612-9a054b0db644?w=800&auto=format&fit=crop&q=80',
@@ -291,6 +340,7 @@ export default function HomeScreen() {
       <Pressable
         style={({ pressed }) => [
           styles.ctaButton,
+          width >= 900 && styles.ctaButtonWide,
           pressed && styles.buttonPressed,
         ]}
         onPress={handleSellPress}
@@ -409,18 +459,25 @@ export default function HomeScreen() {
 
       {/* Screen Wrapper */}
       <View style={styles.screenContainer}>
-        {/* Section 7: Barang Terbaru (FlatList dengan ProductCard) */}
+        {/* Section 7: Barang Terbaru (FlatList responsif dengan ProductCard) */}
         <FlatList
-          data={filteredProducts}
+          key={`products-grid-${numColumns}`}
+          data={paddedProducts}
           keyExtractor={(item) => item.id}
-          numColumns={2}
-          columnWrapperStyle={styles.productRow}
+          numColumns={numColumns}
+          columnWrapperStyle={[
+            styles.productRow,
+            { paddingHorizontal: horizontalPadding },
+          ]}
           ListHeaderComponent={renderListHeader}
           contentContainerStyle={styles.listContentContainer}
           showsVerticalScrollIndicator={false}
-          renderItem={({ item }) => (
-            <ProductCard product={item} onPress={handleProductPress} />
-          )}
+          renderItem={({ item }) => {
+            if (item.id.startsWith('__dummy_')) {
+              return <View style={styles.dummyCard} />;
+            }
+            return <ProductCard product={item} onPress={handleProductPress} />;
+          }}
           ListEmptyComponent={
             <View style={styles.emptyContainer}>
               <Ionicons name="file-tray-outline" size={48} color="#94A3B8" />
@@ -462,7 +519,6 @@ const styles = StyleSheet.create({
     paddingBottom: 20,
   },
   headerContentWrapper: {
-    paddingHorizontal: 16,
     paddingTop: 8,
   },
 
@@ -551,7 +607,6 @@ const styles = StyleSheet.create({
   // 4. Banner Gambar
   bannerContainer: {
     width: '100%',
-    height: 160,
     borderRadius: 16,
     overflow: 'hidden',
     position: 'relative',
@@ -616,6 +671,11 @@ const styles = StyleSheet.create({
     shadowOpacity: 0.25,
     shadowRadius: 8,
     elevation: 4,
+  },
+  ctaButtonWide: {
+    maxWidth: 420,
+    alignSelf: 'center',
+    width: '100%',
   },
   ctaButtonText: {
     color: '#FFFFFF',
@@ -730,9 +790,12 @@ const styles = StyleSheet.create({
 
   // 7. Grid Produk
   productRow: {
-    paddingHorizontal: 16,
     gap: 12,
     marginBottom: 14,
+  },
+  dummyCard: {
+    flex: 1,
+    backgroundColor: 'transparent',
   },
   emptyContainer: {
     alignItems: 'center',
