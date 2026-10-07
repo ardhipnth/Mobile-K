@@ -32,6 +32,9 @@ export const ProductCard: React.FC<ProductCardProps> = ({ product, onPress }) =>
     maximumFractionDigits: 0,
   }).format(product.price);
 
+  // Tambahkan info NIM ke label aksesibilitas jika terverifikasi
+  const nimSuffix = product.isNIMVerified ? ', penjual terverifikasi NIM' : ', penjual belum terverifikasi';
+
   return (
     <Pressable
       style={({ pressed }) => [
@@ -40,57 +43,58 @@ export const ProductCard: React.FC<ProductCardProps> = ({ product, onPress }) =>
       ]}
       onPress={() => onPress?.(product)}
       accessibilityRole="button"
-      accessibilityLabel={`Barang: ${product.title}, harga ${formattedPrice}, kondisi ${product.condition}, lokasi di ${product.location}, penjual ${product.sellerName}`}
-      accessibilityHint="Ketuk untuk melihat rincian barang dan menghubungi mahasiswa penjual"
+      accessibilityLabel={`${product.title}, harga ${formattedPrice}, kondisi ${product.condition}, lokasi ${product.location}, penjual ${product.sellerName}${nimSuffix}`}
+      accessibilityHint="Ketuk untuk melihat detail barang dan menghubungi penjual"
     >
-      {/* Gambar Produk */}
-      <View style={styles.imageWrapper}>
+      {/* Gambar Produk — dekoratif, diabaikan screen reader */}
+      <View style={styles.imageWrapper} importantForAccessibility="no">
         <Image
           source={{ uri: product.imageUrl }}
           style={styles.productImage}
           resizeMode="cover"
-          accessibilityLabel={`Foto produk ${product.title}`}
+          importantForAccessibility="no"
+          accessibilityElementsHidden
         />
         {/* Badge Kondisi */}
-        <View style={styles.conditionBadge}>
-          <Text style={styles.conditionText}>{product.condition}</Text>
+        <View style={styles.conditionBadge} importantForAccessibility="no">
+          <Text style={styles.conditionText} importantForAccessibility="no">{product.condition}</Text>
         </View>
       </View>
 
-      {/* Informasi Produk */}
-      <View style={styles.contentContainer}>
+      {/* Informasi Produk — semua teks diabaikan karena label sudah lengkap di Pressable */}
+      <View style={styles.contentContainer} importantForAccessibility="no">
         {/* Fakultas Badge */}
-        <View style={styles.facultyBadge}>
-          <Text style={styles.facultyBadgeText} numberOfLines={1}>
+        <View style={styles.facultyBadge} importantForAccessibility="no">
+          <Text style={styles.facultyBadgeText} numberOfLines={1} importantForAccessibility="no">
             {product.faculty}
           </Text>
         </View>
 
         {/* Judul Barang */}
-        <Text style={styles.titleText} numberOfLines={2}>
+        <Text style={styles.titleText} numberOfLines={2} importantForAccessibility="no">
           {product.title}
         </Text>
 
         {/* Harga */}
-        <Text style={styles.priceText}>{formattedPrice}</Text>
+        <Text style={styles.priceText} importantForAccessibility="no">{formattedPrice}</Text>
 
         {/* Lokasi COD di Kampus */}
-        <View style={styles.metaRow}>
-          <Ionicons name="location-sharp" size={13} color="#64748B" />
-          <Text style={styles.locationText} numberOfLines={1}>
+        <View style={styles.metaRow} importantForAccessibility="no">
+          <Ionicons name="location-sharp" size={13} color="#64748B" importantForAccessibility="no" />
+          <Text style={styles.locationText} numberOfLines={1} importantForAccessibility="no">
             {product.location}
           </Text>
         </View>
 
         {/* Penjual & Verifikasi NIM */}
-        <View style={styles.sellerRow}>
-          <Text style={styles.sellerNameText} numberOfLines={1}>
+        <View style={styles.sellerRow} importantForAccessibility="no">
+          <Text style={styles.sellerNameText} numberOfLines={1} importantForAccessibility="no">
             {product.sellerName}
           </Text>
           {product.isNIMVerified && (
-            <View style={styles.verifiedBadge}>
-              <Ionicons name="shield-checkmark" size={12} color="#059669" />
-              <Text style={styles.verifiedText}>NIM ✓</Text>
+            <View style={styles.verifiedBadge} importantForAccessibility="no">
+              <Ionicons name="shield-checkmark" size={12} color="#059669" importantForAccessibility="no" />
+              <Text style={styles.verifiedText} importantForAccessibility="no">NIM ✓</Text>
             </View>
           )}
         </View>

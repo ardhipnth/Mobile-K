@@ -257,9 +257,18 @@ export default function HomeScreen() {
         </Text>
 
         {/* NIM Verified Badge Info */}
-        <View style={styles.nimNoticeBadge}>
-          <Ionicons name="shield-checkmark" size={16} color="#0F766E" />
-          <Text style={styles.nimNoticeText}>
+        <View
+          style={styles.nimNoticeBadge}
+          accessibilityRole="text"
+          accessibilityLabel="Khusus Mahasiswa Aktif Terverifikasi NIM Kampus"
+        >
+          <Ionicons
+            name="shield-checkmark"
+            size={16}
+            color="#0F766E"
+            importantForAccessibility="no"
+          />
+          <Text style={styles.nimNoticeText} importantForAccessibility="no">
             Khusus Mahasiswa Aktif Terverifikasi NIM Kampus
           </Text>
         </View>
@@ -295,11 +304,11 @@ export default function HomeScreen() {
         ]}
         onPress={handleSellPress}
         accessibilityRole="button"
-        accessibilityLabel="Jual Barang"
+        accessibilityLabel="Jual Barang Sekarang"
         accessibilityHint="Navigasi ke formulir untuk mengunggah iklan barang bekas Anda"
       >
-        <Ionicons name="add-circle" size={24} color="#FFFFFF" />
-        <Text style={styles.ctaButtonText}>Jual Barang Sekarang</Text>
+        <Ionicons name="add-circle" size={24} color="#FFFFFF" importantForAccessibility="no" />
+        <Text style={styles.ctaButtonText} importantForAccessibility="no">Jual Barang Sekarang</Text>
       </Pressable>
 
       {/* 6. Section "Kategori per Fakultas" (Kartu Horizontal) */}
@@ -317,10 +326,10 @@ export default function HomeScreen() {
               style={styles.resetFilterButton}
               onPress={() => setSelectedFaculty(null)}
               accessibilityRole="button"
-              accessibilityLabel="Reset filter fakultas"
-              accessibilityHint="Menampilkan semua barang dari seluruh fakultas"
+              accessibilityLabel="Reset filter fakultas, lihat semua barang"
+              accessibilityHint="Menghapus filter fakultas dan menampilkan semua barang dari seluruh fakultas"
             >
-              <Text style={styles.resetFilterText}>Lihat Semua</Text>
+              <Text style={styles.resetFilterText} importantForAccessibility="no">Lihat Semua</Text>
             </Pressable>
           )}
         </View>
@@ -343,8 +352,13 @@ export default function HomeScreen() {
                 ]}
                 onPress={() => handleCategoryPress(item)}
                 accessibilityRole="button"
-                accessibilityLabel={`Fakultas ${item.name}, ${item.itemCount} barang tersedia`}
-                accessibilityHint={`Menyaring barang bekas khusus untuk ${item.name}`}
+                accessibilityLabel={`Kategori ${item.name}, ${item.itemCount} barang tersedia`}
+                accessibilityHint={
+                  isSelected
+                    ? `Ketuk untuk menghapus filter ${item.name}`
+                    : `Ketuk untuk menyaring barang bekas khusus ${item.name}`
+                }
+                accessibilityState={{ selected: isSelected }}
               >
                 <View
                   style={[
@@ -352,11 +366,13 @@ export default function HomeScreen() {
                     { backgroundColor: item.badgeBg },
                     isSelected && { backgroundColor: '#0F766E' },
                   ]}
+                  importantForAccessibility="no"
                 >
                   <Ionicons
                     name={item.icon}
                     size={22}
                     color={isSelected ? '#FFFFFF' : item.iconColor}
+                    importantForAccessibility="no"
                   />
                 </View>
                 <Text
@@ -365,6 +381,7 @@ export default function HomeScreen() {
                     isSelected && styles.categoryTextSelected,
                   ]}
                   numberOfLines={1}
+                  importantForAccessibility="no"
                 >
                   {item.shortName}
                 </Text>
@@ -374,10 +391,11 @@ export default function HomeScreen() {
                     isSelected && styles.categoryTextSelected,
                   ]}
                   numberOfLines={1}
+                  importantForAccessibility="no"
                 >
                   {item.name}
                 </Text>
-                <Text style={styles.categoryCount}>{item.itemCount} item</Text>
+                <Text style={styles.categoryCount} importantForAccessibility="no">{item.itemCount} item</Text>
               </Pressable>
             );
           }}
@@ -422,10 +440,14 @@ export default function HomeScreen() {
             <ProductCard product={item} onPress={handleProductPress} />
           )}
           ListEmptyComponent={
-            <View style={styles.emptyContainer}>
-              <Ionicons name="file-tray-outline" size={48} color="#94A3B8" />
-              <Text style={styles.emptyTitle}>Belum Ada Barang</Text>
-              <Text style={styles.emptySubtitle}>
+            <View
+              style={styles.emptyContainer}
+              accessibilityRole="text"
+              accessibilityLabel="Belum Ada Barang. Tidak ada barang bekas di kategori fakultas ini saat ini."
+            >
+              <Ionicons name="file-tray-outline" size={48} color="#94A3B8" importantForAccessibility="no" />
+              <Text style={styles.emptyTitle} importantForAccessibility="no">Belum Ada Barang</Text>
+              <Text style={styles.emptySubtitle} importantForAccessibility="no">
                 Tidak ada barang bekas di kategori fakultas ini saat ini.
               </Text>
             </View>
@@ -719,9 +741,9 @@ const styles = StyleSheet.create({
     marginTop: 1,
   },
   categoryCount: {
-    fontSize: 9,
-    color: '#0D9488',
-    fontWeight: '600',
+    fontSize: 10,
+    color: '#0F766E', // #0F766E on white = 4.85:1 kontras (WCAG AA)
+    fontWeight: '700',
     marginTop: 4,
   },
   categoryTextSelected: {

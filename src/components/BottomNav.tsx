@@ -87,22 +87,24 @@ export const BottomNav: React.FC<BottomNavProps> = ({
         onPress={() => onTabPress?.('chat')}
         accessibilityRole="tab"
         accessibilityState={{ selected: activeTab === 'chat' }}
-        accessibilityLabel="Tab Chat"
+        accessibilityLabel="Tab Chat, ada pesan belum dibaca"
         accessibilityHint="Buka pesan dan obrolan dengan mahasiswa lain"
       >
-        <View style={styles.iconWithBadge}>
+        <View style={styles.iconWithBadge} importantForAccessibility="no">
           <Ionicons
             name={activeTab === 'chat' ? 'chatbubble-ellipses' : 'chatbubble-ellipses-outline'}
             size={22}
             color={activeTab === 'chat' ? '#0F766E' : '#64748B'}
+            importantForAccessibility="no"
           />
-          <View style={styles.unreadDot} />
+          <View style={styles.unreadDot} importantForAccessibility="no" />
         </View>
         <Text
           style={[
             styles.tabLabel,
             activeTab === 'chat' && styles.tabLabelActive,
           ]}
+          importantForAccessibility="no"
         >
           Chat
         </Text>
