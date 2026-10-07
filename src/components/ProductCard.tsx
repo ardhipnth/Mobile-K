@@ -5,6 +5,8 @@ import {
   Image,
   Pressable,
   StyleSheet,
+  StyleProp,
+  ViewStyle,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 
@@ -23,9 +25,10 @@ export interface ProductItem {
 interface ProductCardProps {
   product: ProductItem;
   onPress?: (product: ProductItem) => void;
+  style?: StyleProp<ViewStyle>;
 }
 
-export const ProductCard: React.FC<ProductCardProps> = ({ product, onPress }) => {
+export const ProductCard: React.FC<ProductCardProps> = ({ product, onPress, style }) => {
   const formattedPrice = new Intl.NumberFormat('id-ID', {
     style: 'currency',
     currency: 'IDR',
@@ -39,6 +42,7 @@ export const ProductCard: React.FC<ProductCardProps> = ({ product, onPress }) =>
     <Pressable
       style={({ pressed }) => [
         styles.cardContainer,
+        style,
         pressed && styles.cardPressed,
       ]}
       onPress={() => onPress?.(product)}
@@ -125,7 +129,7 @@ const styles = StyleSheet.create({
   },
   imageWrapper: {
     width: '100%',
-    height: 135,
+    aspectRatio: 4 / 3,
     backgroundColor: '#F1F5F9',
     position: 'relative',
   },
