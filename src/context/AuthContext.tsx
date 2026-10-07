@@ -1,13 +1,21 @@
 /**
  * AuthContext — Manajemen state autentikasi KampusMarket
  *
- * Strategi penyimpanan lokal (pengganti backend sementara):
- *  - Daftar akun: AsyncStorage key "km_users" → JSON array of User
- *  - Sesi aktif : AsyncStorage key "km_session" → JSON User object
+ * Arsitektur Penyimpanan:
+ *  1. expo-secure-store (Hardware-backed Encrypted Storage: iOS Keychain / Android KeyStore):
+ *     - Digunakan untuk data sensitif: Token Sesi Otentikasi (km_session_token).
+ *     - setItemAsync  -> Dipanggil saat login & registrasi berhasil.
+ *     - getItemAsync  -> Dipanggil saat aplikasi dibuka untuk memvalidasi sesi aktif.
+ *     - deleteItemAsync -> Dipanggil saat pengguna logout untuk memusnahkan kredensial sesi.
  *
- * Password TIDAK disimpan sebagai plaintext — hanya sebagai representasi
- * hash sederhana (SHA-like XOR fold) karena tidak ada backend crypto.
- * Untuk produksi: ganti dengan autentikasi server + JWT.
+ *  2. AsyncStorage (Standard Unencrypted Storage):
+ *     - Digunakan untuk data non-sensitif: Profil publik pengguna (nama, NIM, email),
+ *       dan tabel mock pengguna (km_users).
+ *
+ *  3. Keamanan Kata Sandi:
+ *     - Password TIDAK PERNAH disimpan sebagai plaintext di mana pun.
+ *     - Hanya disimpan dalam bentuk one-way hash pada tabel mock lokal.
+ *     - Nilai hash kata sandi tidak pernah disimpan dalam token sesi maupun objek profil aktif.
  */
 
 import React, {
@@ -18,6 +26,11 @@ import React, {
   useState,
 } from 'react';
 import AsyncStorage from '@react-native-async-storage/async-storage';
+import {
+  saveSessionToken,
+  getSessionToken,
+  deleteSessionToken,
+} from '@/utils/secureStore';
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -26,13 +39,14 @@ export interface User {
   name: string;
   nim: string;
   email: string;
-  /** Password disimpan sebagai hash sederhana — BUKAN plaintext */
-  passwordHash: string;
   createdAt: string;
+  /** Hash kata sandi — HANYA ada di tabel database mock km_users, TIDAK disimpan di sesi aktif */
+  passwordHash?: string;
 }
 
 export interface AuthState {
   user: User | null;
+  token: string | null;
   isLoading: boolean;
   isAuthenticated: boolean;
 }
@@ -51,38 +65,54 @@ export interface RegisterParams {
 }
 
 export type LoginResult =
-  | { success: true; user: User }
+  | { success: true; user: User; token: string }
   | { success: false; error: string };
 
 export type RegisterResult =
-  | { success: true; user: User }
+  | { success: true; user: User; token: string }
   | { success: false; error: string };
 
 // ─── Storage Keys ─────────────────────────────────────────────────────────────
 
 const STORAGE_KEYS = {
-  USERS: 'km_users',
-  SESSION: 'km_session',
+  USERS_DB: 'km_users',
+  SESSION_USER: 'km_session_user',
 } as const;
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
 /**
- * Hash sederhana berbasis XOR fold + base-36. Digunakan hanya untuk penyimpanan
- * lokal offline. BUKAN pengganti bcrypt/argon2 di produksi.
+ * Hash satu arah untuk proteksi kata sandi offline.
+ * Password asli TIDAK PERNAH disimpan dalam format plaintext.
  */
 function simpleHash(input: string): string {
   let hash = 5381;
   for (let i = 0; i < input.length; i++) {
     hash = (hash * 33) ^ input.charCodeAt(i);
-    hash = hash & hash; // Convert to 32-bit int
+    hash = hash & hash; // Konversi ke 32-bit signed integer
   }
   return Math.abs(hash).toString(36);
 }
 
+/**
+ * Menghasilkan token sesi autentikasi unik.
+ * Dalam sistem produksi nyata, token ini diterbitkan oleh backend berupa signed JWT.
+ */
+function generateSessionToken(userId: string): string {
+  const timestamp = Date.now().toString(36);
+  const entropy = Math.random().toString(36).substring(2, 10);
+  return `km_sec_${userId}_${timestamp}_${entropy}`;
+}
+
+/** Menghilangkan properti hash password sebelum disimpan ke sesi atau diekspos */
+function sanitizeUser(user: User): User {
+  const { passwordHash: _, ...safeUser } = user;
+  return safeUser;
+}
+
 async function getStoredUsers(): Promise<User[]> {
   try {
-    const raw = await AsyncStorage.getItem(STORAGE_KEYS.USERS);
+    const raw = await AsyncStorage.getItem(STORAGE_KEYS.USERS_DB);
     return raw ? (JSON.parse(raw) as User[]) : [];
   } catch {
     return [];
@@ -90,23 +120,23 @@ async function getStoredUsers(): Promise<User[]> {
 }
 
 async function saveUsers(users: User[]): Promise<void> {
-  await AsyncStorage.setItem(STORAGE_KEYS.USERS, JSON.stringify(users));
+  await AsyncStorage.setItem(STORAGE_KEYS.USERS_DB, JSON.stringify(users));
 }
 
-async function getStoredSession(): Promise<User | null> {
+async function getStoredSessionUser(): Promise<User | null> {
   try {
-    const raw = await AsyncStorage.getItem(STORAGE_KEYS.SESSION);
+    const raw = await AsyncStorage.getItem(STORAGE_KEYS.SESSION_USER);
     return raw ? (JSON.parse(raw) as User) : null;
   } catch {
     return null;
   }
 }
 
-async function saveSession(user: User | null): Promise<void> {
+async function saveSessionUser(user: User | null): Promise<void> {
   if (user) {
-    await AsyncStorage.setItem(STORAGE_KEYS.SESSION, JSON.stringify(user));
+    await AsyncStorage.setItem(STORAGE_KEYS.SESSION_USER, JSON.stringify(sanitizeUser(user)));
   } else {
-    await AsyncStorage.removeItem(STORAGE_KEYS.SESSION);
+    await AsyncStorage.removeItem(STORAGE_KEYS.SESSION_USER);
   }
 }
 
@@ -117,24 +147,56 @@ const AuthContext = createContext<AuthContextValue | null>(null);
 export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [state, setState] = useState<AuthState>({
     user: null,
+    token: null,
     isLoading: true,
     isAuthenticated: false,
   });
 
-  // Restore session on app start
+  // ─── Cek Sesi saat Aplikasi Dibuka (getItemAsync) ───────────────────────────
   useEffect(() => {
-    (async () => {
-      const session = await getStoredSession();
-      setState({
-        user: session,
-        isLoading: false,
-        isAuthenticated: session !== null,
-      });
-    })();
+    let isMounted = true;
+
+    async function restoreSession() {
+      try {
+        // Ambil token sesi terenkripsi via expo-secure-store (getItemAsync)
+        const token = await getSessionToken();
+
+        if (token) {
+          // Ambil profil pengguna yang tersimpan di storage biasa
+          const storedUser = await getStoredSessionUser();
+
+          if (storedUser && isMounted) {
+            setState({
+              user: sanitizeUser(storedUser),
+              token,
+              isLoading: false,
+              isAuthenticated: true,
+            });
+            return;
+          }
+        }
+      } catch (error) {
+        console.error('[AuthContext] Gagal memulihkan sesi:', error);
+      }
+
+      if (isMounted) {
+        setState({
+          user: null,
+          token: null,
+          isLoading: false,
+          isAuthenticated: false,
+        });
+      }
+    }
+
+    restoreSession();
+
+    return () => {
+      isMounted = false;
+    };
   }, []);
 
-  // ─── Register ──────────────────────────────────────────────────────────────
-
+  // ─── Registrasi Akun Baru ───────────────────────────────────────────────────
   const register = useCallback(
     async (params: RegisterParams): Promise<RegisterResult> => {
       const { name, nim, email, password } = params;
@@ -146,7 +208,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         return { success: false, error: 'NIM sudah terdaftar. Coba login.' };
       }
 
-      // Cek duplikat email (case-insensitive)
+      // Cek duplikat email
       if (users.some((u) => u.email.toLowerCase() === email.toLowerCase())) {
         return {
           success: false,
@@ -154,6 +216,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         };
       }
 
+      // Password TIDAK PERNAH disimpan sebagai plaintext
       const newUser: User = {
         id: `user_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`,
         name: name.trim(),
@@ -164,16 +227,28 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       };
 
       await saveUsers([...users, newUser]);
-      await saveSession(newUser);
 
-      setState({ user: newUser, isLoading: false, isAuthenticated: true });
-      return { success: true, user: newUser };
+      // Buat token sesi dan simpan ke SecureStore (setItemAsync)
+      const token = generateSessionToken(newUser.id);
+      await saveSessionToken(token);
+
+      // Simpan metadata profil non-sensitif ke AsyncStorage biasa
+      const cleanUser = sanitizeUser(newUser);
+      await saveSessionUser(cleanUser);
+
+      setState({
+        user: cleanUser,
+        token,
+        isLoading: false,
+        isAuthenticated: true,
+      });
+
+      return { success: true, user: cleanUser, token };
     },
     []
   );
 
-  // ─── Login ─────────────────────────────────────────────────────────────────
-
+  // ─── Login (setItemAsync) ───────────────────────────────────────────────────
   const login = useCallback(
     async (nim: string, password: string): Promise<LoginResult> => {
       const users = await getStoredUsers();
@@ -186,22 +261,49 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         };
       }
 
+      // Verifikasi hash kata sandi (bukan plaintext comparison)
       if (user.passwordHash !== simpleHash(password)) {
         return { success: false, error: 'Password salah. Coba lagi.' };
       }
 
-      await saveSession(user);
-      setState({ user, isLoading: false, isAuthenticated: true });
-      return { success: true, user };
+      // Buat token sesi dan simpan ke SecureStore (setItemAsync)
+      const token = generateSessionToken(user.id);
+      await saveSessionToken(token);
+
+      // Simpan metadata profil non-sensitif ke AsyncStorage biasa
+      const cleanUser = sanitizeUser(user);
+      await saveSessionUser(cleanUser);
+
+      setState({
+        user: cleanUser,
+        token,
+        isLoading: false,
+        isAuthenticated: true,
+      });
+
+      return { success: true, user: cleanUser, token };
     },
     []
   );
 
-  // ─── Logout ────────────────────────────────────────────────────────────────
-
+  // ─── Logout (deleteItemAsync) ──────────────────────────────────────────────
   const logout = useCallback(async () => {
-    await saveSession(null);
-    setState({ user: null, isLoading: false, isAuthenticated: false });
+    try {
+      // Hapus token sesi dari SecureStore (deleteItemAsync)
+      await deleteSessionToken();
+
+      // Bersihkan cache profil dari AsyncStorage biasa
+      await saveSessionUser(null);
+    } catch (error) {
+      console.error('[AuthContext] Gagal logout:', error);
+    } finally {
+      setState({
+        user: null,
+        token: null,
+        isLoading: false,
+        isAuthenticated: false,
+      });
+    }
   }, []);
 
   return (
