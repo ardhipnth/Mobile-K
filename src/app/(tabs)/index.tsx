@@ -12,8 +12,10 @@ import {
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
+import { useRouter } from 'expo-router';
 import { ProductCard, ProductItem } from '@/components/ProductCard';
 import { BottomNav, TabKey } from '@/components/BottomNav';
+import { useAuth } from '@/context/AuthContext';
 
 // Interface untuk Kategori Fakultas
 interface FacultyCategory {
@@ -186,6 +188,8 @@ const DUMMY_PRODUCTS: ProductItem[] = [
 ];
 
 export default function HomeScreen() {
+  const { user, logout } = useAuth();
+  const router = useRouter();
   const [selectedFaculty, setSelectedFaculty] = useState<string | null>(null);
   const [currentTab, setCurrentTab] = useState<TabKey>('beranda');
 
@@ -224,6 +228,24 @@ export default function HomeScreen() {
 
   const handleSellPress = () => {
     Alert.alert('Jual Barang', 'Formulir unggah barang bekas khusus mahasiswa.');
+  };
+
+  const handleLogout = () => {
+    Alert.alert(
+      'Keluar Akun',
+      'Apakah kamu yakin ingin keluar dari KampusMarket?',
+      [
+        { text: 'Batal', style: 'cancel' },
+        {
+          text: 'Keluar',
+          style: 'destructive',
+          onPress: async () => {
+            await logout();
+            router.replace('/(auth)/login' as any);
+          },
+        },
+      ]
+    );
   };
 
   const handleCategoryPress = (category: FacultyCategory) => {
@@ -283,24 +305,41 @@ export default function HomeScreen() {
           </View>
         </View>
 
-        {/* Ikon Cari (Min 44x44 tap target & aksesibilitas lengkap) */}
-        <Pressable
-          style={({ pressed }) => [
-            styles.iconButton,
-            pressed && styles.buttonPressed,
-          ]}
-          onPress={handleSearchPress}
-          accessibilityRole="button"
-          accessibilityLabel="Cari barang bekas"
-          accessibilityHint="Membuka halaman pencarian barang berdasarkan nama atau kategori"
-        >
-          <Ionicons name="search" size={22} color="#0F172A" />
-        </Pressable>
+        {/* Ikon Cari + Logout */}
+        <View style={styles.headerActions}>
+          <Pressable
+            style={({ pressed }) => [
+              styles.iconButton,
+              pressed && styles.buttonPressed,
+            ]}
+            onPress={handleSearchPress}
+            accessibilityRole="button"
+            accessibilityLabel="Cari barang bekas"
+            accessibilityHint="Membuka halaman pencarian barang berdasarkan nama atau kategori"
+          >
+            <Ionicons name="search" size={22} color="#0F172A" />
+          </Pressable>
+
+          <Pressable
+            style={({ pressed }) => [
+              styles.iconButton,
+              pressed && styles.buttonPressed,
+            ]}
+            onPress={handleLogout}
+            accessibilityRole="button"
+            accessibilityLabel="Keluar dari akun"
+            accessibilityHint="Ketuk untuk keluar dari sesi KampusMarket dan kembali ke halaman login"
+          >
+            <Ionicons name="log-out-outline" size={22} color="#DC2626" />
+          </Pressable>
+        </View>
       </View>
 
       {/* 2. Judul Sambutan & 3. Teks Informasi Singkat */}
       <View style={styles.welcomeSection}>
-        <Text style={styles.welcomeTitle}>Halo, Rekan Mahasiswa! 👋</Text>
+        <Text style={styles.welcomeTitle}>
+          Halo, {user?.name?.split(' ')[0] ?? 'Mahasiswa'}! 👋
+        </Text>
         <Text style={styles.infoText}>
           Temukan dan jual barang bekas kebutuhan kuliah secara aman antar teman satu almamater.
         </Text>
@@ -575,6 +614,10 @@ const styles = StyleSheet.create({
     fontSize: 11,
     fontWeight: '500',
     color: '#475569',
+  },
+  headerActions: {
+    flexDirection: 'row',
+    gap: 8,
   },
   iconButton: {
     width: 44,
