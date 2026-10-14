@@ -10,8 +10,12 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 import { Platform } from 'react-native';
 
 export const SECURE_STORAGE_KEYS = {
+  /** Token sesi mock lokal (dipertahankan untuk backward-compat sementara migrasi) */
   SESSION_TOKEN: 'km_session_token',
+  /** Access token Supabase JWT — disimpan terenkripsi via SecureStore */
+  ACCESS_TOKEN: 'access_token',
 } as const;
+
 
 /**
  * Menyimpan data sensitif (misal: token JWT sesi) ke penyimpanan terenkripsi hardware.
@@ -84,4 +88,21 @@ export async function getSessionToken(): Promise<string | null> {
 /** Helper khusus untuk token sesi: deleteItemAsync */
 export async function deleteSessionToken(): Promise<void> {
   return deleteSecureItem(SECURE_STORAGE_KEYS.SESSION_TOKEN);
+}
+
+// ─── Access Token Supabase (JWT) ──────────────────────────────────────────────
+
+/** Menyimpan Supabase JWT access token ke SecureStore (setItemAsync) */
+export async function saveAccessToken(token: string): Promise<void> {
+  return setSecureItem(SECURE_STORAGE_KEYS.ACCESS_TOKEN, token);
+}
+
+/** Membaca Supabase JWT access token dari SecureStore (getItemAsync) */
+export async function getAccessToken(): Promise<string | null> {
+  return getSecureItem(SECURE_STORAGE_KEYS.ACCESS_TOKEN);
+}
+
+/** Menghapus Supabase JWT access token saat logout (deleteItemAsync) */
+export async function deleteAccessToken(): Promise<void> {
+  return deleteSecureItem(SECURE_STORAGE_KEYS.ACCESS_TOKEN);
 }

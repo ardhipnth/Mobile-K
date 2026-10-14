@@ -1,10 +1,10 @@
 /**
  * Halaman Login KampusMarket
  *
- * Field  : NIM (angka saja) dan Password
- * Validasi lokal sebelum request:
+ * Field  : Email dan Password
+ * Validasi lokal sebelum request (dilakukan juga di authService):
  *  - Input kosong ditolak
- *  - NIM hanya angka
+ *  - Email format valid
  *  - Password minimal 8 karakter
  * Aksesibilitas: setiap elemen interaktif punya accessibilityLabel,
  *   accessibilityRole, dan accessibilityHint.
@@ -32,18 +32,20 @@ import { AuthInput } from '@/components/AuthInput';
 // ─── Validasi ─────────────────────────────────────────────────────────────────
 
 interface LoginErrors {
-  nim?: string;
+  email?: string;
   password?: string;
   form?: string;
 }
 
-function validate(nim: string, password: string): LoginErrors {
+const EMAIL_REGEX = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+
+function validate(email: string, password: string): LoginErrors {
   const errors: LoginErrors = {};
 
-  if (!nim.trim()) {
-    errors.nim = 'NIM wajib diisi.';
-  } else if (!/^\d+$/.test(nim)) {
-    errors.nim = 'NIM hanya boleh berisi angka.';
+  if (!email.trim()) {
+    errors.email = 'Email wajib diisi.';
+  } else if (!EMAIL_REGEX.test(email.trim())) {
+    errors.email = 'Format email tidak valid. Contoh: nama@kampus.ac.id';
   }
 
   if (!password) {
@@ -61,24 +63,24 @@ export default function LoginScreen() {
   const router = useRouter();
   const { login } = useAuth();
 
-  const [nim, setNim] = useState('');
+  const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [errors, setErrors] = useState<LoginErrors>({});
   const [isLoading, setIsLoading] = useState(false);
 
   const handleLogin = async () => {
     // 1. Validasi lokal
-    const localErrors = validate(nim, password);
+    const localErrors = validate(email, password);
     if (Object.keys(localErrors).length > 0) {
       setErrors(localErrors);
       return;
     }
     setErrors({});
 
-    // 2. Panggil AuthContext
+    // 2. Panggil AuthContext → authService → Supabase REST API
     setIsLoading(true);
     try {
-      const result = await login(nim, password);
+      const result = await login(email, password);
       if (result.success) {
         // Navigasi ke Home — replace agar tombol back tidak kembali ke Login
         router.replace('/(tabs)' as any);
@@ -138,23 +140,23 @@ export default function LoginScreen() {
               </View>
             )}
 
-            {/* NIM */}
+            {/* Email */}
             <AuthInput
-              label="NIM (Nomor Induk Mahasiswa)"
-              placeholder="Contoh: 2021001234"
-              value={nim}
+              label="Email"
+              placeholder="nama@kampus.ac.id"
+              value={email}
               onChangeText={(t) => {
-                setNim(t);
-                if (errors.nim) setErrors((e) => ({ ...e, nim: undefined }));
+                setEmail(t);
+                if (errors.email) setErrors((e) => ({ ...e, email: undefined }));
                 if (errors.form) setErrors((e) => ({ ...e, form: undefined }));
               }}
-              error={errors.nim}
-              iconName="card-outline"
-              keyboardType="numeric"
+              error={errors.email}
+              iconName="mail-outline"
+              keyboardType="email-address"
+              autoCapitalize="none"
               returnKeyType="next"
-              accessibilityLabel="Nomor Induk Mahasiswa"
-              accessibilityHint="Masukkan NIM kamu, hanya angka, tanpa spasi atau tanda baca"
-              maxLength={20}
+              accessibilityLabel="Alamat email akun"
+              accessibilityHint="Masukkan email yang terdaftar di KampusMarket"
             />
 
             {/* Password */}
@@ -239,7 +241,7 @@ export default function LoginScreen() {
 
           {/* Footer */}
           <Text style={styles.footerNote}>
-            Hanya untuk mahasiswa aktif yang terverifikasi NIM.
+            Login menggunakan email dan password yang terdaftar di KampusMarket.
           </Text>
         </ScrollView>
       </KeyboardAvoidingView>

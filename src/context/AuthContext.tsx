@@ -1,21 +1,26 @@
 /**
  * AuthContext — Manajemen state autentikasi KampusMarket
  *
- * Arsitektur Penyimpanan:
+ * Arsitektur Penyimpanan (Sprint 03+):
  *  1. expo-secure-store (Hardware-backed Encrypted Storage: iOS Keychain / Android KeyStore):
- *     - Digunakan untuk data sensitif: Token Sesi Otentikasi (km_session_token).
- *     - setItemAsync  -> Dipanggil saat login & registrasi berhasil.
- *     - getItemAsync  -> Dipanggil saat aplikasi dibuka untuk memvalidasi sesi aktif.
- *     - deleteItemAsync -> Dipanggil saat pengguna logout untuk memusnahkan kredensial sesi.
+ *     - Menyimpan Supabase JWT access_token dengan key "access_token".
+ *     - saveAccessToken  → dipanggil saat login & register berhasil.
+ *     - getAccessToken   → dipanggil saat aplikasi dibuka untuk memulihkan sesi.
+ *     - deleteAccessToken→ dipanggil saat pengguna logout.
  *
- *  2. AsyncStorage (Standard Unencrypted Storage):
- *     - Digunakan untuk data non-sensitif: Profil publik pengguna (nama, NIM, email),
- *       dan tabel mock pengguna (km_users).
+ *  Apa yang TIDAK disimpan lagi:
+ *  - Tidak ada tabel pengguna lokal (km_users) di AsyncStorage.
+ *  - Tidak ada password hash (simpleHash) — validasi password dilakukan oleh Supabase.
+ *  - Tidak ada token sesi mock lokal yang di-generate sendiri.
+ *  - Tidak ada password atau secret apapun yang di-simpan lokal selain JWT dari server.
  *
- *  3. Keamanan Kata Sandi:
- *     - Password TIDAK PERNAH disimpan sebagai plaintext di mana pun.
- *     - Hanya disimpan dalam bentuk one-way hash pada tabel mock lokal.
- *     - Nilai hash kata sandi tidak pernah disimpan dalam token sesi maupun objek profil aktif.
+ * Alur Login:
+ *  Form → validate() → authService.login() → Supabase REST API
+ *  → access_token → saveAccessToken (SecureStore) → setState(isAuthenticated: true)
+ *
+ * Alur Restore Session:
+ *  App dibuka → getAccessToken (SecureStore) → token ada → setState(isAuthenticated: true)
+ *  → token tidak ada → setState(isAuthenticated: false, isLoading: false)
  */
 
 import React, {
@@ -25,12 +30,13 @@ import React, {
   useEffect,
   useState,
 } from 'react';
-import AsyncStorage from '@react-native-async-storage/async-storage';
 import {
-  saveSessionToken,
-  getSessionToken,
-  deleteSessionToken,
+  saveAccessToken,
+  getAccessToken,
+  deleteAccessToken,
 } from '@/utils/secureStore';
+import * as authService from '@/services/authService';
+import type { AuthUser } from '@/services/authService';
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -39,9 +45,6 @@ export interface User {
   name: string;
   nim: string;
   email: string;
-  createdAt: string;
-  /** Hash kata sandi — HANYA ada di tabel database mock km_users, TIDAK disimpan di sesi aktif */
-  passwordHash?: string;
 }
 
 export interface AuthState {
@@ -49,19 +52,6 @@ export interface AuthState {
   token: string | null;
   isLoading: boolean;
   isAuthenticated: boolean;
-}
-
-interface AuthContextValue extends AuthState {
-  login: (nim: string, password: string) => Promise<LoginResult>;
-  register: (params: RegisterParams) => Promise<RegisterResult>;
-  logout: () => Promise<void>;
-}
-
-export interface RegisterParams {
-  name: string;
-  nim: string;
-  email: string;
-  password: string;
 }
 
 export type LoginResult =
@@ -72,72 +62,37 @@ export type RegisterResult =
   | { success: true; user: User; token: string }
   | { success: false; error: string };
 
-// ─── Storage Keys ─────────────────────────────────────────────────────────────
+export interface RegisterParams {
+  name: string;
+  nim: string;
+  email: string;
+  password: string;
+}
 
-const STORAGE_KEYS = {
-  USERS_DB: 'km_users',
-  SESSION_USER: 'km_session_user',
-} as const;
+interface AuthContextValue extends AuthState {
+  /**
+   * Login menggunakan email dan password.
+   * Validasi lokal dilakukan di authService.validateLoginInput().
+   */
+  login: (email: string, password: string) => Promise<LoginResult>;
+  /**
+   * Registrasi akun baru. Setelah berhasil, langsung login otomatis.
+   * Validasi lokal dilakukan di authService.validateRegisterInput().
+   */
+  register: (params: RegisterParams) => Promise<RegisterResult>;
+  /** Hapus token dari SecureStore dan reset state ke unauthenticated */
+  logout: () => Promise<void>;
+}
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
-/**
- * Hash satu arah untuk proteksi kata sandi offline.
- * Password asli TIDAK PERNAH disimpan dalam format plaintext.
- */
-function simpleHash(input: string): string {
-  let hash = 5381;
-  for (let i = 0; i < input.length; i++) {
-    hash = (hash * 33) ^ input.charCodeAt(i);
-    hash = hash & hash; // Konversi ke 32-bit signed integer
-  }
-  return Math.abs(hash).toString(36);
-}
-
-/**
- * Menghasilkan token sesi autentikasi unik.
- * Dalam sistem produksi nyata, token ini diterbitkan oleh backend berupa signed JWT.
- */
-function generateSessionToken(userId: string): string {
-  const timestamp = Date.now().toString(36);
-  const entropy = Math.random().toString(36).substring(2, 10);
-  return `km_sec_${userId}_${timestamp}_${entropy}`;
-}
-
-/** Menghilangkan properti hash password sebelum disimpan ke sesi atau diekspos */
-function sanitizeUser(user: User): User {
-  const { passwordHash: _, ...safeUser } = user;
-  return safeUser;
-}
-
-async function getStoredUsers(): Promise<User[]> {
-  try {
-    const raw = await AsyncStorage.getItem(STORAGE_KEYS.USERS_DB);
-    return raw ? (JSON.parse(raw) as User[]) : [];
-  } catch {
-    return [];
-  }
-}
-
-async function saveUsers(users: User[]): Promise<void> {
-  await AsyncStorage.setItem(STORAGE_KEYS.USERS_DB, JSON.stringify(users));
-}
-
-async function getStoredSessionUser(): Promise<User | null> {
-  try {
-    const raw = await AsyncStorage.getItem(STORAGE_KEYS.SESSION_USER);
-    return raw ? (JSON.parse(raw) as User) : null;
-  } catch {
-    return null;
-  }
-}
-
-async function saveSessionUser(user: User | null): Promise<void> {
-  if (user) {
-    await AsyncStorage.setItem(STORAGE_KEYS.SESSION_USER, JSON.stringify(sanitizeUser(user)));
-  } else {
-    await AsyncStorage.removeItem(STORAGE_KEYS.SESSION_USER);
-  }
+function mapAuthUser(authUser: AuthUser): User {
+  return {
+    id: authUser.id,
+    name: authUser.name,
+    email: authUser.email,
+    nim: authUser.nim,
+  };
 }
 
 // ─── Context ──────────────────────────────────────────────────────────────────
@@ -152,28 +107,30 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     isAuthenticated: false,
   });
 
-  // ─── Cek Sesi saat Aplikasi Dibuka (getItemAsync) ───────────────────────────
+  // ─── Restore Session saat Aplikasi Dibuka (getAccessToken) ─────────────────
+  //
+  // Hanya membaca token dari SecureStore untuk menentukan apakah sesi aktif.
+  // Tidak ada round-trip ke server pada saat ini; token divalidasi saat request
+  // berikutnya membutuhkan otorisasi (misalnya fetch data produk).
   useEffect(() => {
     let isMounted = true;
 
     async function restoreSession() {
       try {
-        // Ambil token sesi terenkripsi via expo-secure-store (getItemAsync)
-        const token = await getSessionToken();
+        // getItemAsync — membaca JWT dari iOS Keychain / Android KeyStore
+        const token = await getAccessToken();
 
-        if (token) {
-          // Ambil profil pengguna yang tersimpan di storage biasa
-          const storedUser = await getStoredSessionUser();
-
-          if (storedUser && isMounted) {
-            setState({
-              user: sanitizeUser(storedUser),
-              token,
-              isLoading: false,
-              isAuthenticated: true,
-            });
-            return;
-          }
+        if (token && isMounted) {
+          // Token ditemukan → sesi dianggap aktif
+          // user di-set null dulu; layar yang membutuhkan data user
+          // akan fetch ulang menggunakan token ini bila perlu.
+          setState({
+            user: null,
+            token,
+            isLoading: false,
+            isAuthenticated: true,
+          });
+          return;
         }
       } catch (error) {
         console.error('[AuthContext] Gagal memulihkan sesi:', error);
@@ -196,104 +153,95 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     };
   }, []);
 
-  // ─── Registrasi Akun Baru ───────────────────────────────────────────────────
+  // ─── Login ─────────────────────────────────────────────────────────────────
+  const login = useCallback(
+    async (email: string, password: string): Promise<LoginResult> => {
+      // 1. Validasi input lokal sebelum request dikirim
+      const validationError = authService.validateLoginInput(email, password);
+      if (validationError) {
+        return { success: false, error: validationError.message };
+      }
+
+      try {
+        // 2. POST ke Supabase Auth REST API
+        const payload = await authService.login(email, password);
+
+        // 3. Simpan JWT ke SecureStore (setItemAsync)
+        await saveAccessToken(payload.accessToken);
+
+        const user = mapAuthUser(payload.user);
+
+        // 4. Update state
+        setState({
+          user,
+          token: payload.accessToken,
+          isLoading: false,
+          isAuthenticated: true,
+        });
+
+        return { success: true, user, token: payload.accessToken };
+      } catch (error) {
+        const message =
+          error instanceof Error
+            ? error.message
+            : 'Terjadi kesalahan jaringan. Coba lagi.';
+        return { success: false, error: message };
+      }
+    },
+    [],
+  );
+
+  // ─── Register ──────────────────────────────────────────────────────────────
   const register = useCallback(
     async (params: RegisterParams): Promise<RegisterResult> => {
       const { name, nim, email, password } = params;
 
-      const users = await getStoredUsers();
-
-      // Cek duplikat NIM
-      if (users.some((u) => u.nim === nim)) {
-        return { success: false, error: 'NIM sudah terdaftar. Coba login.' };
-      }
-
-      // Cek duplikat email
-      if (users.some((u) => u.email.toLowerCase() === email.toLowerCase())) {
-        return {
-          success: false,
-          error: 'Email sudah digunakan. Coba login atau gunakan email lain.',
-        };
-      }
-
-      // Password TIDAK PERNAH disimpan sebagai plaintext
-      const newUser: User = {
-        id: `user_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`,
-        name: name.trim(),
+      // 1. Validasi input lokal sebelum request dikirim
+      const validationError = authService.validateRegisterInput(
+        name,
         nim,
-        email: email.toLowerCase().trim(),
-        passwordHash: simpleHash(password),
-        createdAt: new Date().toISOString(),
-      };
-
-      await saveUsers([...users, newUser]);
-
-      // Buat token sesi dan simpan ke SecureStore (setItemAsync)
-      const token = generateSessionToken(newUser.id);
-      await saveSessionToken(token);
-
-      // Simpan metadata profil non-sensitif ke AsyncStorage biasa
-      const cleanUser = sanitizeUser(newUser);
-      await saveSessionUser(cleanUser);
-
-      setState({
-        user: cleanUser,
-        token,
-        isLoading: false,
-        isAuthenticated: true,
-      });
-
-      return { success: true, user: cleanUser, token };
-    },
-    []
-  );
-
-  // ─── Login (setItemAsync) ───────────────────────────────────────────────────
-  const login = useCallback(
-    async (nim: string, password: string): Promise<LoginResult> => {
-      const users = await getStoredUsers();
-
-      const user = users.find((u) => u.nim === nim);
-      if (!user) {
-        return {
-          success: false,
-          error: 'NIM tidak ditemukan. Periksa NIM atau daftar akun baru.',
-        };
+        email,
+        password,
+        password, // register tidak memiliki confirmPassword di params; halaman sudah validasi sebelum memanggil ini
+      );
+      if (validationError) {
+        return { success: false, error: validationError.message };
       }
 
-      // Verifikasi hash kata sandi (bukan plaintext comparison)
-      if (user.passwordHash !== simpleHash(password)) {
-        return { success: false, error: 'Password salah. Coba lagi.' };
+      try {
+        // 2. POST signup ke Supabase, lalu authService otomatis login()
+        const payload = await authService.register(name, nim, email, password);
+
+        // 3. Simpan JWT ke SecureStore (setItemAsync)
+        await saveAccessToken(payload.accessToken);
+
+        const user = mapAuthUser(payload.user);
+
+        // 4. Update state
+        setState({
+          user,
+          token: payload.accessToken,
+          isLoading: false,
+          isAuthenticated: true,
+        });
+
+        return { success: true, user, token: payload.accessToken };
+      } catch (error) {
+        const message =
+          error instanceof Error
+            ? error.message
+            : 'Terjadi kesalahan jaringan. Coba lagi.';
+        return { success: false, error: message };
       }
-
-      // Buat token sesi dan simpan ke SecureStore (setItemAsync)
-      const token = generateSessionToken(user.id);
-      await saveSessionToken(token);
-
-      // Simpan metadata profil non-sensitif ke AsyncStorage biasa
-      const cleanUser = sanitizeUser(user);
-      await saveSessionUser(cleanUser);
-
-      setState({
-        user: cleanUser,
-        token,
-        isLoading: false,
-        isAuthenticated: true,
-      });
-
-      return { success: true, user: cleanUser, token };
     },
-    []
+    [],
   );
 
-  // ─── Logout (deleteItemAsync) ──────────────────────────────────────────────
+  // ─── Logout ────────────────────────────────────────────────────────────────
   const logout = useCallback(async () => {
     try {
-      // Hapus token sesi dari SecureStore (deleteItemAsync)
-      await deleteSessionToken();
-
-      // Bersihkan cache profil dari AsyncStorage biasa
-      await saveSessionUser(null);
+      // deleteItemAsync — hapus JWT dari iOS Keychain / Android KeyStore
+      await deleteAccessToken();
     } catch (error) {
       console.error('[AuthContext] Gagal logout:', error);
     } finally {
