@@ -1,4 +1,4 @@
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useEffect, useCallback } from 'react';
 import {
   View,
   Text,
@@ -8,6 +8,7 @@ import {
   FlatList,
   StatusBar,
   Alert,
+  ActivityIndicator,
   useWindowDimensions,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
@@ -16,6 +17,8 @@ import { useRouter } from 'expo-router';
 import { ProductCard, ProductItem } from '@/components/ProductCard';
 import { BottomNav, TabKey } from '@/components/BottomNav';
 import { useAuth } from '@/context/AuthContext';
+import { getProducts } from '@/services/productService';
+import { Product } from '@/types/product';
 
 // Interface untuk Kategori Fakultas
 interface FacultyCategory {
@@ -95,103 +98,18 @@ const FACULTY_CATEGORIES: FacultyCategory[] = [
   },
 ];
 
-// Data Dummy Barang Terbaru Mahasiswa
-const DUMMY_PRODUCTS: ProductItem[] = [
-  {
-    id: 'p1',
-    title: 'Kalkulator Saintifik Casio fx-991EX ClassWiz',
-    price: 185000,
-    faculty: 'Fakultas Teknik',
-    condition: 'Mulus 95%',
-    location: 'Gedung FT Elektro',
-    sellerName: 'Dimas Pratama',
-    imageUrl: 'https://images.unsplash.com/photo-1611162617213-7d7a39e9b1d7?w=600&auto=format&fit=crop&q=80',
-    isNIMVerified: true,
-  },
-  {
-    id: 'p2',
-    title: 'Jas Laboratorium Kimia Size L + Kacamata Google',
-    price: 65000,
-    faculty: 'FMIPA',
-    condition: 'Baru 1 Semester',
-    location: 'Lab Dasar FMIPA',
-    sellerName: 'Siti Nurhaliza',
-    imageUrl: 'https://images.unsplash.com/photo-1582719478250-c89cae4dc85b?w=600&auto=format&fit=crop&q=80',
-    isNIMVerified: true,
-  },
-  {
-    id: 'p3',
-    title: 'Buku Kalkulus Edisi 9 Jilid 1 (Dale Varberg & Purcell)',
-    price: 85000,
-    faculty: 'MIPA / Teknik',
-    condition: 'Catatan Rapi',
-    location: 'Perpustakaan Pusat',
-    sellerName: 'Arya Wiguna',
-    imageUrl: 'https://images.unsplash.com/photo-1544716278-ca5e3f4abd8c?w=600&auto=format&fit=crop&q=80',
-    isNIMVerified: true,
-  },
-  {
-    id: 'p4',
-    title: 'iPad 9th Gen 64GB WiFi Gray + Apple Pencil Ori',
-    price: 3750000,
-    faculty: 'FASILKOM',
-    condition: 'Bekas Skripsi',
-    location: 'Kantin Gedung C',
-    sellerName: 'Budi Santoso',
-    imageUrl: 'https://images.unsplash.com/photo-1544244015-0df4b3ffc6b0?w=600&auto=format&fit=crop&q=80',
-    isNIMVerified: true,
-  },
-  {
-    id: 'p5',
-    title: 'Monitor Portable 15.6 Inch Full HD IPS Type-C',
-    price: 890000,
-    faculty: 'FASILKOM',
-    condition: 'Normal 100%',
-    location: 'Asrama Mahasiswa',
-    sellerName: 'Nabila Rahma',
-    imageUrl: 'https://images.unsplash.com/photo-1527443224154-c4a3942d3acf?w=600&auto=format&fit=crop&q=80',
-    isNIMVerified: true,
-  },
-  {
-    id: 'p6',
-    title: 'Sepeda Lipat Polygon Urbano Siap Pakai Kampus',
-    price: 900000,
-    faculty: 'Umum Kampus',
-    condition: 'Ban & Rem Baru',
-    location: 'Parkiran Rektorat',
-    sellerName: 'Kevin Alamsyah',
-    imageUrl: 'https://images.unsplash.com/photo-1485965120184-e220f721d03e?w=600&auto=format&fit=crop&q=80',
-    isNIMVerified: true,
-  },
-  {
-    id: 'p7',
-    title: 'Meja Lipat Belajar Kayu Lesehan untuk Kamar Kos',
-    price: 45000,
-    faculty: 'FSRD',
-    condition: 'Kokoh & Bersih',
-    location: 'Kantin Belakang',
-    sellerName: 'Rian Hidayat',
-    imageUrl: 'https://images.unsplash.com/photo-1538688525198-9b88f6f53126?w=600&auto=format&fit=crop&q=80',
-    isNIMVerified: false,
-  },
-  {
-    id: 'p8',
-    title: 'Buku Pengantar Akuntansi IFRS Edisi 4 - Weygandt',
-    price: 75000,
-    faculty: 'FEB',
-    condition: 'Mulus 90%',
-    location: 'Gazebo FEB',
-    sellerName: 'Zahra Amalia',
-    imageUrl: 'https://images.unsplash.com/photo-1497633762265-9d179a990aa6?w=600&auto=format&fit=crop&q=80',
-    isNIMVerified: true,
-  },
-];
+
 
 export default function HomeScreen() {
   const { user, logout } = useAuth();
   const router = useRouter();
   const [selectedFaculty, setSelectedFaculty] = useState<string | null>(null);
   const [currentTab, setCurrentTab] = useState<TabKey>('beranda');
+
+  // ── State data produk dari API ──────────────────────────────────────────────
+  const [products, setProducts] = useState<Product[]>([]);
+  const [isLoading, setIsLoading] = useState<boolean>(true);
+  const [error, setError] = useState<string | null>(null);
 
   // Dimensi jendela untuk tata letak responsif tanpa hardcode lebar piksel
   const { width, height } = useWindowDimensions();
@@ -221,7 +139,29 @@ export default function HomeScreen() {
     return 160;
   }, [isLandscape, height, width]);
 
-  // Handler interaksi
+  // ── Fetch produk dari API ───────────────────────────────────────────────────
+  const fetchProducts = useCallback(async () => {
+    setIsLoading(true);
+    setError(null);
+    try {
+      const data = await getProducts();
+      setProducts(data);
+    } catch (err) {
+      setError(
+        err instanceof Error
+          ? err.message
+          : 'Terjadi kesalahan yang tidak diketahui.'
+      );
+    } finally {
+      setIsLoading(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    fetchProducts();
+  }, [fetchProducts]);
+
+  // ── Handler interaksi ──────────────────────────────────────────────────────
   const handleSearchPress = () => {
     Alert.alert('Cari Barang', 'Fitur pencarian barang bekas kampus.');
   };
@@ -259,16 +199,16 @@ export default function HomeScreen() {
     );
   };
 
-  // Filter produk berdasarkan fakultas jika dipilih
+  // Filter produk berdasarkan fakultas jika dipilih (sumber: data dari API)
   const filteredProducts = selectedFaculty
-    ? DUMMY_PRODUCTS.filter(
+    ? products.filter(
         (p) =>
           p.faculty.toLowerCase().includes(selectedFaculty) ||
           (selectedFaculty === 'fasilkom' && p.faculty.toLowerCase().includes('fasilkom')) ||
           (selectedFaculty === 'ft' && p.faculty.toLowerCase().includes('teknik')) ||
           (selectedFaculty === 'fmipa' && p.faculty.toLowerCase().includes('mipa'))
       )
-    : DUMMY_PRODUCTS;
+    : products;
 
   // Placeholder transparan agar kartu barang pada baris terakhir tidak melar (flex: 1)
   // dan lebarnya tetap konsisten dengan kolom di atasnya
@@ -510,45 +450,135 @@ export default function HomeScreen() {
     </View>
   );
 
+  // ── Komponen UI: Loading ────────────────────────────────────────────────────
+  const renderLoading = () => (
+    <View
+      style={styles.feedbackContainer}
+      accessibilityRole="progressbar"
+      accessibilityLabel="Memuat daftar barang, harap tunggu"
+    >
+      <ActivityIndicator size="large" color="#0F766E" />
+      <Text style={styles.feedbackText} importantForAccessibility="no">
+        Memuat barang terbaru…
+      </Text>
+    </View>
+  );
+
+  // ── Komponen UI: Error ─────────────────────────────────────────────────────
+  const renderError = () => (
+    <View
+      style={styles.feedbackContainer}
+      accessibilityRole="alert"
+      accessibilityLabel={`Gagal memuat data. ${error}. Ketuk tombol Coba lagi untuk mengulang.`}
+    >
+      <Ionicons
+        name="cloud-offline-outline"
+        size={48}
+        color="#DC2626"
+        importantForAccessibility="no"
+      />
+      <Text style={styles.errorTitle} importantForAccessibility="no">
+        Gagal Memuat Data
+      </Text>
+      <Text style={styles.errorMessage} importantForAccessibility="no">
+        {error}
+      </Text>
+      <Pressable
+        style={({ pressed }) => [
+          styles.retryButton,
+          pressed && styles.buttonPressed,
+        ]}
+        onPress={fetchProducts}
+        accessibilityRole="button"
+        accessibilityLabel="Coba lagi memuat daftar barang"
+        accessibilityHint="Mengulangi permintaan ke server untuk mengambil daftar barang terbaru"
+      >
+        <Ionicons
+          name="refresh"
+          size={18}
+          color="#FFFFFF"
+          importantForAccessibility="no"
+        />
+        <Text style={styles.retryButtonText} importantForAccessibility="no">
+          Coba Lagi
+        </Text>
+      </Pressable>
+    </View>
+  );
+
   return (
     <SafeAreaView style={styles.safeArea}>
       <StatusBar barStyle="dark-content" backgroundColor="#F8FAFC" />
 
       {/* Screen Wrapper */}
       <View style={styles.screenContainer}>
-        {/* Section 7: Barang Terbaru (FlatList responsif dengan ProductCard) */}
-        <FlatList
-          key={`products-grid-${numColumns}`}
-          data={paddedProducts}
-          keyExtractor={(item) => item.id}
-          numColumns={numColumns}
-          columnWrapperStyle={[
-            styles.productRow,
-            { paddingHorizontal: horizontalPadding },
-          ]}
-          ListHeaderComponent={renderListHeader}
-          contentContainerStyle={styles.listContentContainer}
-          showsVerticalScrollIndicator={false}
-          renderItem={({ item }) => {
-            if (item.id.startsWith('__dummy_')) {
-              return <View style={styles.dummyCard} />;
+        {/* Tampilkan loading atau error di atas FlatList agar header tetap muncul */}
+        {isLoading ? (
+          // Saat loading: tampilkan header + spinner di bawahnya
+          <FlatList
+            key="loading"
+            data={[]}
+            keyExtractor={() => 'empty'}
+            ListHeaderComponent={renderListHeader}
+            ListEmptyComponent={renderLoading}
+            contentContainerStyle={styles.listContentContainer}
+            showsVerticalScrollIndicator={false}
+            renderItem={() => null}
+          />
+        ) : error ? (
+          // Saat error: tampilkan header + pesan error + tombol retry
+          <FlatList
+            key="error"
+            data={[]}
+            keyExtractor={() => 'empty'}
+            ListHeaderComponent={renderListHeader}
+            ListEmptyComponent={renderError}
+            contentContainerStyle={styles.listContentContainer}
+            showsVerticalScrollIndicator={false}
+            renderItem={() => null}
+          />
+        ) : (
+          // Saat data siap: tampilkan grid produk
+          <FlatList
+            key={`products-grid-${numColumns}`}
+            data={paddedProducts}
+            keyExtractor={(item) => item.id}
+            numColumns={numColumns}
+            columnWrapperStyle={[
+              styles.productRow,
+              { paddingHorizontal: horizontalPadding },
+            ]}
+            ListHeaderComponent={renderListHeader}
+            contentContainerStyle={styles.listContentContainer}
+            showsVerticalScrollIndicator={false}
+            renderItem={({ item }) => {
+              if (item.id.startsWith('__dummy_')) {
+                return <View style={styles.dummyCard} />;
+              }
+              return <ProductCard product={item} onPress={handleProductPress} />;
+            }}
+            ListEmptyComponent={
+              <View
+                style={styles.emptyContainer}
+                accessibilityRole="text"
+                accessibilityLabel="Belum Ada Barang. Tidak ada barang bekas tersedia saat ini."
+              >
+                <Ionicons
+                  name="file-tray-outline"
+                  size={48}
+                  color="#94A3B8"
+                  importantForAccessibility="no"
+                />
+                <Text style={styles.emptyTitle} importantForAccessibility="no">
+                  Belum Ada Barang
+                </Text>
+                <Text style={styles.emptySubtitle} importantForAccessibility="no">
+                  Belum ada barang bekas yang tersedia saat ini. Jadilah yang pertama berjualan!
+                </Text>
+              </View>
             }
-            return <ProductCard product={item} onPress={handleProductPress} />;
-          }}
-          ListEmptyComponent={
-            <View
-              style={styles.emptyContainer}
-              accessibilityRole="text"
-              accessibilityLabel="Belum Ada Barang. Tidak ada barang bekas di kategori fakultas ini saat ini."
-            >
-              <Ionicons name="file-tray-outline" size={48} color="#94A3B8" importantForAccessibility="no" />
-              <Text style={styles.emptyTitle} importantForAccessibility="no">Belum Ada Barang</Text>
-              <Text style={styles.emptySubtitle} importantForAccessibility="no">
-                Tidak ada barang bekas di kategori fakultas ini saat ini.
-              </Text>
-            </View>
-          }
-        />
+          />
+        )}
 
         {/* 8. Bottom Navigation: Beranda, Kategori, Jual, Chat, Profil */}
         <BottomNav
@@ -879,5 +909,52 @@ const styles = StyleSheet.create({
     color: '#64748B',
     textAlign: 'center',
     marginTop: 4,
+  },
+
+  // ── Feedback: Loading & Error ─────────────────────────────────────────────
+  feedbackContainer: {
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingVertical: 48,
+    paddingHorizontal: 24,
+  },
+  feedbackText: {
+    fontSize: 13,
+    color: '#64748B',
+    marginTop: 12,
+  },
+  errorTitle: {
+    fontSize: 16,
+    fontWeight: '700',
+    color: '#DC2626',
+    marginTop: 12,
+  },
+  errorMessage: {
+    fontSize: 12,
+    color: '#64748B',
+    textAlign: 'center',
+    marginTop: 4,
+    marginBottom: 20,
+    lineHeight: 18,
+  },
+  retryButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#0F766E',
+    paddingHorizontal: 24,
+    paddingVertical: 12,
+    borderRadius: 10,
+    gap: 8,
+    minHeight: 44,
+    shadowColor: '#0F766E',
+    shadowOffset: { width: 0, height: 3 },
+    shadowOpacity: 0.2,
+    shadowRadius: 6,
+    elevation: 3,
+  },
+  retryButtonText: {
+    color: '#FFFFFF',
+    fontSize: 14,
+    fontWeight: '700',
   },
 });
