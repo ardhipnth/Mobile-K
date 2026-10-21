@@ -14,7 +14,17 @@ export const SECURE_STORAGE_KEYS = {
   SESSION_TOKEN: 'km_session_token',
   /** Access token Supabase JWT — disimpan terenkripsi via SecureStore */
   ACCESS_TOKEN: 'access_token',
+  /** Data profil pengguna (id, name, email, nim) — disimpan terenkripsi */
+  USER_DATA: 'km_user_data',
 } as const;
+
+/** Shape minimal data user yang disimpan lokal */
+export interface StoredUser {
+  id: string;
+  name: string;
+  email: string;
+  nim: string;
+}
 
 
 /**
@@ -105,4 +115,36 @@ export async function getAccessToken(): Promise<string | null> {
 /** Menghapus Supabase JWT access token saat logout (deleteItemAsync) */
 export async function deleteAccessToken(): Promise<void> {
   return deleteSecureItem(SECURE_STORAGE_KEYS.ACCESS_TOKEN);
+}
+
+// ─── User Data (Profil) ───────────────────────────────────────────────────────
+
+/**
+ * Menyimpan data profil pengguna ke SecureStore sebagai JSON.
+ * Dipanggil setelah login/register berhasil agar data user tetap
+ * tersedia saat aplikasi dibuka ulang tanpa perlu request ke server.
+ */
+export async function saveUserData(user: StoredUser): Promise<void> {
+  return setSecureItem(SECURE_STORAGE_KEYS.USER_DATA, JSON.stringify(user));
+}
+
+/**
+ * Membaca data profil pengguna dari SecureStore.
+ * Mengembalikan null jika belum ada atau gagal di-parse.
+ */
+export async function getUserData(): Promise<StoredUser | null> {
+  try {
+    const raw = await getSecureItem(SECURE_STORAGE_KEYS.USER_DATA);
+    if (!raw) return null;
+    return JSON.parse(raw) as StoredUser;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Menghapus data profil pengguna dari SecureStore saat logout.
+ */
+export async function deleteUserData(): Promise<void> {
+  return deleteSecureItem(SECURE_STORAGE_KEYS.USER_DATA);
 }

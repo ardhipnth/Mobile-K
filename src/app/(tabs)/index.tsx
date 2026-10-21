@@ -585,7 +585,10 @@ export default function HomeScreen() {
           activeTab={currentTab}
           onTabPress={(tab) => {
             setCurrentTab(tab);
-            if (tab === 'jual') {
+            if (tab === 'profil') {
+              // Navigasi ke halaman Profil
+              router.push('/(tabs)/profile' as any);
+            } else if (tab === 'jual') {
               handleSellPress();
             } else if (tab !== 'beranda') {
               Alert.alert('Navigasi', `Membuka tab ${tab.toUpperCase()}`);

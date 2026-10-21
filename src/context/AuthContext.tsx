@@ -4,23 +4,31 @@
  * Arsitektur Penyimpanan (Sprint 03+):
  *  1. expo-secure-store (Hardware-backed Encrypted Storage: iOS Keychain / Android KeyStore):
  *     - Menyimpan Supabase JWT access_token dengan key "access_token".
+ *     - Menyimpan data profil user (JSON) dengan key "km_user_data".
  *     - saveAccessToken  → dipanggil saat login & register berhasil.
  *     - getAccessToken   → dipanggil saat aplikasi dibuka untuk memulihkan sesi.
  *     - deleteAccessToken→ dipanggil saat pengguna logout.
+ *     - saveUserData     → dipanggil saat login & register berhasil.
+ *     - getUserData      → dipanggil saat memulihkan sesi agar nama/email tampil.
+ *     - deleteUserData   → dipanggil saat logout.
  *
- *  Apa yang TIDAK disimpan lagi:
- *  - Tidak ada tabel pengguna lokal (km_users) di AsyncStorage.
- *  - Tidak ada password hash (simpleHash) — validasi password dilakukan oleh Supabase.
- *  - Tidak ada token sesi mock lokal yang di-generate sendiri.
- *  - Tidak ada password atau secret apapun yang di-simpan lokal selain JWT dari server.
+ *  Apa yang TIDAK disimpan:
+ *  - Tidak ada password atau secret apapun selain JWT dari server.
+ *  - Token TIDAK pernah dicetak ke console.
  *
  * Alur Login:
  *  Form → validate() → authService.login() → Supabase REST API
- *  → access_token → saveAccessToken (SecureStore) → setState(isAuthenticated: true)
+ *  → access_token → saveAccessToken + saveUserData (SecureStore)
+ *  → setState(isAuthenticated: true)
  *
  * Alur Restore Session:
- *  App dibuka → getAccessToken (SecureStore) → token ada → setState(isAuthenticated: true)
+ *  App dibuka → getAccessToken + getUserData (SecureStore)
+ *  → token ada → setState(isAuthenticated: true, user: <data tersimpan>)
  *  → token tidak ada → setState(isAuthenticated: false, isLoading: false)
+ *
+ * Penanganan 401:
+ *  apiClient mendapat 401 → notifyUnauthorized() → logout() otomatis
+ *  → Alert "Sesi berakhir, silakan login lagi" → navigasi ke halaman login
  */
 
 import React, {
@@ -28,12 +36,18 @@ import React, {
   useCallback,
   useContext,
   useEffect,
+  useRef,
   useState,
 } from 'react';
+import { Alert } from 'react-native';
+import { useRouter } from 'expo-router';
 import {
   saveAccessToken,
   getAccessToken,
   deleteAccessToken,
+  saveUserData,
+  getUserData,
+  deleteUserData,
 } from '@/utils/secureStore';
 import * as authService from '@/services/authService';
 import type { AuthUser } from '@/services/authService';
@@ -96,6 +110,15 @@ function mapAuthUser(authUser: AuthUser): User {
   };
 }
 
+// Referensi global ke fungsi navigasi, di-set dari dalam AuthProvider
+// setelah router tersedia. Dipakai oleh handler 401 yang terpicu dari
+// luar render cycle React (via onUnauthorized callback).
+let _navigateToLogin: (() => void) | null = null;
+
+export function setNavigateToLoginRef(fn: () => void): void {
+  _navigateToLogin = fn;
+}
+
 // ─── Context ──────────────────────────────────────────────────────────────────
 
 const AuthContext = createContext<AuthContextValue | null>(null);
@@ -108,25 +131,49 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     isAuthenticated: false,
   });
 
-  // ─── Restore Session saat Aplikasi Dibuka (getAccessToken) ─────────────────
+  const router = useRouter();
+
+  // Simpan referensi router agar selalu segar di dalam closures.
+  const routerRef = useRef(router);
+  useEffect(() => {
+    routerRef.current = router;
+  });
+
+  // Daftarkan fungsi navigasi ke login ke referensi global saat mount.
+  useEffect(() => {
+    setNavigateToLoginRef(() => {
+      routerRef.current.replace('/(auth)/login' as any);
+    });
+    return () => {
+      _navigateToLogin = null;
+    };
+  }, []);
+
+  // ─── Restore Session saat Aplikasi Dibuka ──────────────────────────────────
   //
-  // Hanya membaca token dari SecureStore untuk menentukan apakah sesi aktif.
-  // Tidak ada round-trip ke server pada saat ini; token divalidasi saat request
-  // berikutnya membutuhkan otorisasi (misalnya fetch data produk).
+  // Membaca token DAN data user dari SecureStore sehingga nama & email
+  // langsung tersedia tanpa round-trip ke server.
+  // Token divalidasi server saat request pertama yang memerlukan otorisasi.
   useEffect(() => {
     let isMounted = true;
 
     async function restoreSession() {
       try {
-        // getItemAsync — membaca JWT dari iOS Keychain / Android KeyStore
+        // Baca JWT dari iOS Keychain / Android KeyStore
         const token = await getAccessToken();
 
         if (token && isMounted) {
-          // Token ditemukan → sesi dianggap aktif
-          // user di-set null dulu; layar yang membutuhkan data user
-          // akan fetch ulang menggunakan token ini bila perlu.
+          // Baca data user yang disimpan saat login sebelumnya
+          const stored = await getUserData();
           setState({
-            user: null,
+            user: stored
+              ? {
+                  id: stored.id,
+                  name: stored.name,
+                  email: stored.email,
+                  nim: stored.nim,
+                }
+              : null,
             token,
             isLoading: false,
             isAuthenticated: true,
@@ -172,7 +219,10 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
         const user = mapAuthUser(payload.user);
 
-        // 4. Update state
+        // 4. Simpan data user ke SecureStore agar tetap tersedia setelah restart
+        await saveUserData(user);
+
+        // 5. Update state
         setState({
           user,
           token: payload.accessToken,
@@ -203,7 +253,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         nim,
         email,
         password,
-        password, // register tidak memiliki confirmPassword di params; halaman sudah validasi sebelum memanggil ini
+        password, // halaman sudah validasi confirmPassword sebelum memanggil ini
       );
       if (validationError) {
         return { success: false, error: validationError.message };
@@ -218,7 +268,10 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
         const user = mapAuthUser(payload.user);
 
-        // 4. Update state
+        // 4. Simpan data user ke SecureStore agar tetap tersedia setelah restart
+        await saveUserData(user);
+
+        // 5. Update state
         setState({
           user,
           token: payload.accessToken,
@@ -241,8 +294,10 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   // ─── Logout ────────────────────────────────────────────────────────────────
   const logout = useCallback(async () => {
     try {
-      // deleteItemAsync — hapus JWT dari iOS Keychain / Android KeyStore
+      // Hapus JWT dari iOS Keychain / Android KeyStore
       await deleteAccessToken();
+      // Hapus data profil user dari SecureStore
+      await deleteUserData();
     } catch (error) {
       console.error('[AuthContext] Gagal logout:', error);
     } finally {
@@ -256,9 +311,26 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   }, []);
 
   // ─── Tangani Sesi Berakhir (401 dari apiClient) ─────────────────────────────
+  //
+  // Ketika apiClient mendapat respon 401 (token kedaluwarsa/tidak valid),
+  // logout() otomatis dipanggil, lalu ditampilkan Alert kepada user,
+  // dan setelah OK ditekan navigasi ke halaman login dilakukan.
   useEffect(() => {
-    const unsubscribe = onUnauthorized(() => {
-      logout();
+    const unsubscribe = onUnauthorized(async () => {
+      await logout();
+      Alert.alert(
+        'Sesi Berakhir',
+        'Sesi berakhir, silakan login lagi.',
+        [
+          {
+            text: 'OK',
+            onPress: () => {
+              _navigateToLogin?.();
+            },
+          },
+        ],
+        { cancelable: false },
+      );
     });
     return unsubscribe;
   }, [logout]);
