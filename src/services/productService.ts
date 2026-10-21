@@ -1,15 +1,17 @@
-import { API_BASE_URL } from '@/constants/api';
+import { authFetch } from '@/services/apiClient';
 import { Product, ProductDTO, mapProduct } from '@/types/product';
 
 /**
- * Mengambil daftar produk dari REST API.
+ * Mengambil daftar produk dari REST API Supabase (PostgREST).
+ * Menggunakan authFetch sehingga request otomatis menyertakan access token (JWT)
+ * pada header Authorization.
  * 
  * @returns Promise<Product[]> Daftar produk yang sudah dipetakan untuk UI
  */
 export async function getProducts(): Promise<Product[]> {
   try {
-    // 1. Request: Melakukan GET ke ${API_BASE_URL}/products
-    const response = await fetch(`${API_BASE_URL}/products`);
+    // 1. Request: Melakukan GET terautentikasi ke PostgREST Supabase
+    const response = await authFetch('/rest/v1/products?select=*&order=id');
 
     // 2. Response: Memeriksa response.ok, dan bila gagal lempar Error dengan pesan jelas (sertakan status code)
     if (!response.ok) {
@@ -31,12 +33,26 @@ export async function getProducts(): Promise<Product[]> {
       };
     });
   } catch (error) {
-    // Jika error adalah error response HTTP yang sudah kita buat (berisi status code), lempar kembali
-    if (error instanceof Error && error.message.includes('Status code:')) {
+    // Teruskan error dari authFetch ("Belum login", "Sesi berakhir...") atau status code HTTP
+    if (error instanceof Error) {
+      if (
+        error.message === 'Belum login' ||
+        error.message.includes('Sesi berakhir') ||
+        error.message.includes('Status code:')
+      ) {
+        throw error;
+      }
+
+      // Menangkap error jaringan (misalnya offline)
+      if (error.name === 'TypeError' || error.message.toLowerCase().includes('network')) {
+        throw new Error('Gagal terhubung ke server. Periksa koneksi internet Anda dan coba lagi.');
+      }
+
       throw error;
     }
 
-    // Menangkap error jaringan (misalnya tidak ada internet) dan melemparkannya ulang dengan pesan yang mudah dipahami pengguna
+    // Menangkap error jaringan atau error tak terduga lainnya
     throw new Error('Gagal terhubung ke server. Periksa koneksi internet Anda dan coba lagi.');
   }
 }
+

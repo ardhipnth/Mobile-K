@@ -37,6 +37,7 @@ import {
 } from '@/utils/secureStore';
 import * as authService from '@/services/authService';
 import type { AuthUser } from '@/services/authService';
+import { onUnauthorized } from '@/services/apiClient';
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -253,6 +254,14 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       });
     }
   }, []);
+
+  // ─── Tangani Sesi Berakhir (401 dari apiClient) ─────────────────────────────
+  useEffect(() => {
+    const unsubscribe = onUnauthorized(() => {
+      logout();
+    });
+    return unsubscribe;
+  }, [logout]);
 
   return (
     <AuthContext.Provider value={{ ...state, login, register, logout }}>

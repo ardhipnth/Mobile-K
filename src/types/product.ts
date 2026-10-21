@@ -17,8 +17,8 @@
  * Menggunakan penamaan snake_case sesuai dengan standar response JSON dari backend.
  */
 export interface ProductDTO {
-  /** ID unik produk dari database */
-  id: string;
+  /** ID unik produk dari database (string atau number) */
+  id: string | number;
   
   /** Nama/judul produk */
   title: string;
@@ -97,7 +97,7 @@ export function mapProduct(dto: ProductDTO): Product {
   const validPrice = isNaN(parsedPrice) ? 0 : parsedPrice;
 
   return {
-    id: dto.id,
+    id: String(dto.id),
     title: dto.title,
     // Pastikan harga selalu number valid (jika NaN maka set ke 0)
     price: validPrice,
