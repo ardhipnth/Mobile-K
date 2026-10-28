@@ -8,7 +8,6 @@ import {
   FlatList,
   StatusBar,
   Alert,
-  ActivityIndicator,
   useWindowDimensions,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
@@ -16,9 +15,14 @@ import { Ionicons } from '@expo/vector-icons';
 import { useRouter } from 'expo-router';
 import { ProductCard, ProductItem } from '@/components/ProductCard';
 import { BottomNav, TabKey } from '@/components/BottomNav';
+import { StateView } from '@/components/StateView';
 import { useAuth } from '@/context/AuthContext';
 import { getProducts } from '@/services/productService';
 import { Product } from '@/types/product';
+import { ApiError } from '@/utils/apiError';
+
+export type RequestStatus = 'loading' | 'success' | 'error' | 'empty';
+
 
 // Interface untuk Kategori Fakultas
 interface FacultyCategory {
@@ -106,10 +110,10 @@ export default function HomeScreen() {
   const [selectedFaculty, setSelectedFaculty] = useState<string | null>(null);
   const [currentTab, setCurrentTab] = useState<TabKey>('beranda');
 
-  // ── State data produk dari API ──────────────────────────────────────────────
+  // ── State data produk dari API & status request ─────────────────────────────
   const [products, setProducts] = useState<Product[]>([]);
-  const [isLoading, setIsLoading] = useState<boolean>(true);
-  const [error, setError] = useState<string | null>(null);
+  const [status, setStatus] = useState<RequestStatus>('loading');
+  const [errorMessage, setErrorMessage] = useState<string>('');
 
   // Dimensi jendela untuk tata letak responsif tanpa hardcode lebar piksel
   const { width, height } = useWindowDimensions();
@@ -139,25 +143,35 @@ export default function HomeScreen() {
     return 160;
   }, [isLandscape, height, width]);
 
-  // ── Fetch produk dari API ───────────────────────────────────────────────────
+  // ── Fetch produk dari API dengan penanganan semua kondisi request ───────────
   const fetchProducts = useCallback(async () => {
-    setIsLoading(true);
-    setError(null);
+    setStatus('loading');
+    setErrorMessage('');
     try {
       const data = await getProducts();
       setProducts(data);
+      if (!data || data.length === 0) {
+        setStatus('empty');
+      } else {
+        setStatus('success');
+      }
     } catch (err) {
-      setError(
-        err instanceof Error
-          ? err.message
-          : 'Terjadi kesalahan yang tidak diketahui.'
-      );
+      setStatus('error');
+      if (err instanceof ApiError) {
+        setErrorMessage(err.message);
+      } else if (err instanceof Error) {
+        setErrorMessage(err.message);
+      } else {
+        setErrorMessage('Terjadi kesalahan yang tidak diketahui.');
+      }
     } finally {
-      setIsLoading(false);
+      // Memastikan loading selalu berhenti walau terjadi error tak terduga
+      setStatus((prev) => (prev === 'loading' ? 'error' : prev));
     }
   }, []);
 
   useEffect(() => {
+    // eslint-disable-next-line react-hooks/set-state-in-effect
     fetchProducts();
   }, [fetchProducts]);
 
@@ -450,95 +464,57 @@ export default function HomeScreen() {
     </View>
   );
 
-  // ── Komponen UI: Loading ────────────────────────────────────────────────────
-  const renderLoading = () => (
-    <View
-      style={styles.feedbackContainer}
-      accessibilityRole="progressbar"
-      accessibilityLabel="Memuat daftar barang, harap tunggu"
-    >
-      <ActivityIndicator size="large" color="#0F766E" />
-      <Text style={styles.feedbackText} importantForAccessibility="no">
-        Memuat barang terbaru…
-      </Text>
-    </View>
-  );
-
-  // ── Komponen UI: Error ─────────────────────────────────────────────────────
-  const renderError = () => (
-    <View
-      style={styles.feedbackContainer}
-      accessibilityRole="alert"
-      accessibilityLabel={`Gagal memuat data. ${error}. Ketuk tombol Coba lagi untuk mengulang.`}
-    >
-      <Ionicons
-        name="cloud-offline-outline"
-        size={48}
-        color="#DC2626"
-        importantForAccessibility="no"
-      />
-      <Text style={styles.errorTitle} importantForAccessibility="no">
-        Gagal Memuat Data
-      </Text>
-      <Text style={styles.errorMessage} importantForAccessibility="no">
-        {error}
-      </Text>
-      <Pressable
-        style={({ pressed }) => [
-          styles.retryButton,
-          pressed && styles.buttonPressed,
-        ]}
-        onPress={fetchProducts}
-        accessibilityRole="button"
-        accessibilityLabel="Coba lagi memuat daftar barang"
-        accessibilityHint="Mengulangi permintaan ke server untuk mengambil daftar barang terbaru"
-      >
-        <Ionicons
-          name="refresh"
-          size={18}
-          color="#FFFFFF"
-          importantForAccessibility="no"
-        />
-        <Text style={styles.retryButtonText} importantForAccessibility="no">
-          Coba Lagi
-        </Text>
-      </Pressable>
-    </View>
-  );
-
   return (
     <SafeAreaView style={styles.safeArea}>
       <StatusBar barStyle="dark-content" backgroundColor="#F8FAFC" />
 
       {/* Screen Wrapper */}
       <View style={styles.screenContainer}>
-        {/* Tampilkan loading atau error di atas FlatList agar header tetap muncul */}
-        {isLoading ? (
-          // Saat loading: tampilkan header + spinner di bawahnya
+        {/* Tampilkan loading, error, empty, atau success di atas FlatList agar header tetap muncul */}
+        {status === 'loading' ? (
+          // Saat loading: tampilkan header + spinner StateView
           <FlatList
             key="loading"
             data={[]}
-            keyExtractor={() => 'empty'}
+            keyExtractor={() => 'loading'}
             ListHeaderComponent={renderListHeader}
-            ListEmptyComponent={renderLoading}
+            ListEmptyComponent={<StateView status="loading" />}
             contentContainerStyle={styles.listContentContainer}
             showsVerticalScrollIndicator={false}
             renderItem={() => null}
           />
-        ) : error ? (
-          // Saat error: tampilkan header + pesan error + tombol retry
+        ) : status === 'error' ? (
+          // Saat error: tampilkan header + pesan error ApiError + tombol retry StateView
           <FlatList
             key="error"
             data={[]}
+            keyExtractor={() => 'error'}
+            ListHeaderComponent={renderListHeader}
+            ListEmptyComponent={
+              <StateView
+                status="error"
+                message={errorMessage}
+                onRetry={fetchProducts}
+              />
+            }
+            contentContainerStyle={styles.listContentContainer}
+            showsVerticalScrollIndicator={false}
+            renderItem={() => null}
+          />
+        ) : status === 'empty' ? (
+          // Saat request berhasil tetapi data barang kosong
+          <FlatList
+            key="empty"
+            data={[]}
             keyExtractor={() => 'empty'}
             ListHeaderComponent={renderListHeader}
-            ListEmptyComponent={renderError}
+            ListEmptyComponent={<StateView status="empty" />}
             contentContainerStyle={styles.listContentContainer}
             showsVerticalScrollIndicator={false}
             renderItem={() => null}
           />
         ) : (
-          // Saat data siap: tampilkan grid produk
+          // Saat data siap (status === 'success'): tampilkan grid produk
           <FlatList
             key={`products-grid-${numColumns}`}
             data={paddedProducts}
@@ -558,24 +534,11 @@ export default function HomeScreen() {
               return <ProductCard product={item} onPress={handleProductPress} />;
             }}
             ListEmptyComponent={
-              <View
-                style={styles.emptyContainer}
-                accessibilityRole="text"
-                accessibilityLabel="Belum Ada Barang. Tidak ada barang bekas tersedia saat ini."
-              >
-                <Ionicons
-                  name="file-tray-outline"
-                  size={48}
-                  color="#94A3B8"
-                  importantForAccessibility="no"
-                />
-                <Text style={styles.emptyTitle} importantForAccessibility="no">
-                  Belum Ada Barang
-                </Text>
-                <Text style={styles.emptySubtitle} importantForAccessibility="no">
-                  Belum ada barang bekas yang tersedia saat ini. Jadilah yang pertama berjualan!
-                </Text>
-              </View>
+              <StateView
+                status="empty"
+                title="Belum ada barang"
+                message="Belum ada barang bekas untuk fakultas yang dipilih."
+              />
             }
           />
         )}
@@ -895,69 +858,5 @@ const styles = StyleSheet.create({
     flex: 1,
     backgroundColor: 'transparent',
   },
-  emptyContainer: {
-    alignItems: 'center',
-    justifyContent: 'center',
-    paddingVertical: 40,
-    paddingHorizontal: 24,
-  },
-  emptyTitle: {
-    fontSize: 16,
-    fontWeight: '700',
-    color: '#334155',
-    marginTop: 12,
-  },
-  emptySubtitle: {
-    fontSize: 12,
-    color: '#64748B',
-    textAlign: 'center',
-    marginTop: 4,
-  },
-
-  // ── Feedback: Loading & Error ─────────────────────────────────────────────
-  feedbackContainer: {
-    alignItems: 'center',
-    justifyContent: 'center',
-    paddingVertical: 48,
-    paddingHorizontal: 24,
-  },
-  feedbackText: {
-    fontSize: 13,
-    color: '#64748B',
-    marginTop: 12,
-  },
-  errorTitle: {
-    fontSize: 16,
-    fontWeight: '700',
-    color: '#DC2626',
-    marginTop: 12,
-  },
-  errorMessage: {
-    fontSize: 12,
-    color: '#64748B',
-    textAlign: 'center',
-    marginTop: 4,
-    marginBottom: 20,
-    lineHeight: 18,
-  },
-  retryButton: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    backgroundColor: '#0F766E',
-    paddingHorizontal: 24,
-    paddingVertical: 12,
-    borderRadius: 10,
-    gap: 8,
-    minHeight: 44,
-    shadowColor: '#0F766E',
-    shadowOffset: { width: 0, height: 3 },
-    shadowOpacity: 0.2,
-    shadowRadius: 6,
-    elevation: 3,
-  },
-  retryButtonText: {
-    color: '#FFFFFF',
-    fontSize: 14,
-    fontWeight: '700',
-  },
 });
+
