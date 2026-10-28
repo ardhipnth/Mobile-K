@@ -6,16 +6,17 @@
  *  - Header `Authorization`: Bearer ${token} (diambil dari SecureStore)
  *  - Header `Content-Type`: application/json
  *
- * Menangani respon 401 Unauthorized secara terpusat:
- *  - Menghapus token dari SecureStore
- *  - Memicu event unauthorized agar state login berubah menjadi tidak terautentikasi
- *  - Melempar error ramah pengguna
+ * Menangani semua kemungkinan kegagalan request secara terpusat:
+ *  - Error jaringan (offline)    → ApiError kind 'network'
+ *  - HTTP 401 Unauthorized       → logout otomatis + ApiError kind 'unauthorized'
+ *  - HTTP 4xx/5xx lainnya        → ApiError kind 'http' dengan pesan per status
  *
  * PENTING: Jangan pernah mencetak access token ke console!
  */
 
 import { SUPABASE_URL, SUPABASE_KEY } from '@/constants/api';
 import { getAccessToken, deleteAccessToken } from '@/utils/secureStore';
+import { ApiError } from '@/utils/apiError';
 
 // ─── Event Listener Sesi Unauthorized (401) ──────────────────────────────────
 
@@ -52,15 +53,47 @@ export async function notifyUnauthorized(): Promise<void> {
 // ─── authFetch ────────────────────────────────────────────────────────────────
 
 /**
+ * Mengembalikan pesan error ramah pengguna berdasarkan kode status HTTP.
+ * Digunakan secara internal oleh authFetch.
+ */
+function httpErrorMessage(status: number): string {
+  switch (status) {
+    case 400:
+      return 'Permintaan tidak valid. Silakan coba lagi.';
+    case 403:
+      return 'Anda tidak punya akses ke halaman ini.';
+    case 404:
+      return 'Data tidak ditemukan.';
+    case 500:
+    case 502:
+    case 503:
+      return 'Terjadi kesalahan pada server. Silakan coba lagi.';
+    default:
+      return `Terjadi kesalahan pada request (kode ${status}). Silakan coba lagi.`;
+  }
+}
+
+/**
  * Melakukan HTTP request terautentikasi ke Supabase REST API.
  * Mengambil token dari SecureStore (key "access_token") dan menyematkannya
  * ke header Authorization.
  *
+ * Alur penanganan error:
+ *  1. Bila fetch() sendiri gagal (tidak ada internet, DNS gagal, dsb.) →
+ *       lempar ApiError kind 'network'
+ *  2. Bila server membalas 401 →
+ *       hapus token + notifikasi listener + lempar ApiError kind 'unauthorized'
+ *  3. Bila response.ok === false (4xx/5xx selain 401) →
+ *       lempar ApiError kind 'http' dengan pesan sesuai status
+ *  4. Bila response.ok === true → kembalikan Response ke pemanggil
+ *
  * @param path Endpoint path, misalnya '/rest/v1/products?select=*&order=id'
  * @param options Opsi RequestInit standar (method, body, custom headers, dll.)
- * @returns Promise<Response> dari fetch
+ * @returns Promise<Response> dari fetch (hanya bila ok)
  * @throws Error 'Belum login' jika token tidak ada di SecureStore
- * @throws Error 'Sesi berakhir, silakan login lagi' jika server mengembalikan HTTP 401
+ * @throws ApiError kind 'network' jika tidak ada koneksi internet
+ * @throws ApiError kind 'unauthorized' jika server mengembalikan HTTP 401
+ * @throws ApiError kind 'http' jika server mengembalikan HTTP 4xx/5xx lainnya
  */
 export async function authFetch(
   path: string,
@@ -105,19 +138,43 @@ export async function authFetch(
   };
 
   // 5. Kirim HTTP request ke server (tanpa logging token ke console)
-  const response = await fetch(url, {
-    ...options,
-    headers,
-  });
+  //    Bungkus dengan try/catch untuk menangkap kegagalan jaringan:
+  //    fetch() melempar TypeError bila tidak ada internet atau DNS gagal.
+  let response: Response;
+  try {
+    response = await fetch(url, {
+      ...options,
+      headers,
+    });
+  } catch {
+    // Tidak ada response sama sekali → kegagalan di sisi jaringan
+    throw new ApiError(
+      'network',
+      'Tidak ada koneksi internet. Periksa koneksi Anda dan coba lagi.'
+    );
+  }
 
   // 6. Penanganan status 401 Unauthorized:
   //    - Hapus token dari SecureStore
   //    - Ubah state login menjadi tidak terautentikasi via listener
-  //    - Lempar error ramah pengguna
+  //    - Lempar ApiError kind 'unauthorized'
   if (response.status === 401) {
     await deleteAccessToken();
     await notifyUnauthorized();
-    throw new Error('Sesi berakhir, silakan login lagi');
+    throw new ApiError(
+      'unauthorized',
+      'Sesi berakhir, silakan login lagi.',
+      401
+    );
+  }
+
+  // 7. Periksa response.ok: bila false, server membalas 4xx/5xx selain 401
+  if (!response.ok) {
+    throw new ApiError(
+      'http',
+      httpErrorMessage(response.status),
+      response.status
+    );
   }
 
   return response;
