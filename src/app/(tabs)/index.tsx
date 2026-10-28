@@ -19,6 +19,13 @@ import { BottomNav, TabKey } from '@/components/BottomNav';
 import { useAuth } from '@/context/AuthContext';
 import { getProducts } from '@/services/productService';
 import { Product } from '@/types/product';
+<<<<<<< Updated upstream
+=======
+import { ApiError, ApiErrorKind } from '@/utils/apiError';
+
+export type RequestStatus = 'loading' | 'success' | 'error' | 'empty';
+
+>>>>>>> Stashed changes
 
 // Interface untuk Kategori Fakultas
 interface FacultyCategory {
@@ -108,8 +115,14 @@ export default function HomeScreen() {
 
   // ── State data produk dari API ──────────────────────────────────────────────
   const [products, setProducts] = useState<Product[]>([]);
+<<<<<<< Updated upstream
   const [isLoading, setIsLoading] = useState<boolean>(true);
   const [error, setError] = useState<string | null>(null);
+=======
+  const [status, setStatus] = useState<RequestStatus>('loading');
+  const [errorMessage, setErrorMessage] = useState<string>('');
+  const [errorKind, setErrorKind] = useState<ApiErrorKind | undefined>(undefined);
+>>>>>>> Stashed changes
 
   // Dimensi jendela untuk tata letak responsif tanpa hardcode lebar piksel
   const { width, height } = useWindowDimensions();
@@ -141,17 +154,35 @@ export default function HomeScreen() {
 
   // ── Fetch produk dari API ───────────────────────────────────────────────────
   const fetchProducts = useCallback(async () => {
+<<<<<<< Updated upstream
     setIsLoading(true);
     setError(null);
+=======
+    setStatus('loading');
+    setErrorMessage('');
+    setErrorKind(undefined);
+>>>>>>> Stashed changes
     try {
       const data = await getProducts();
       setProducts(data);
     } catch (err) {
+<<<<<<< Updated upstream
       setError(
         err instanceof Error
           ? err.message
           : 'Terjadi kesalahan yang tidak diketahui.'
       );
+=======
+      setStatus('error');
+      if (err instanceof ApiError) {
+        setErrorMessage(err.message);
+        setErrorKind(err.kind);
+      } else if (err instanceof Error) {
+        setErrorMessage(err.message);
+      } else {
+        setErrorMessage('Terjadi kesalahan yang tidak diketahui.');
+      }
+>>>>>>> Stashed changes
     } finally {
       setIsLoading(false);
     }
@@ -530,6 +561,28 @@ export default function HomeScreen() {
           <FlatList
             key="error"
             data={[]}
+<<<<<<< Updated upstream
+=======
+            keyExtractor={() => 'error'}
+            ListHeaderComponent={renderListHeader}
+            ListEmptyComponent={
+              <StateView
+                status="error"
+                errorKind={errorKind}
+                message={errorMessage}
+                onRetry={fetchProducts}
+              />
+            }
+            contentContainerStyle={styles.listContentContainer}
+            showsVerticalScrollIndicator={false}
+            renderItem={() => null}
+          />
+        ) : status === 'empty' ? (
+          // Saat request berhasil tetapi data barang kosong
+          <FlatList
+            key="empty"
+            data={[]}
+>>>>>>> Stashed changes
             keyExtractor={() => 'empty'}
             ListHeaderComponent={renderListHeader}
             ListEmptyComponent={renderError}
