@@ -7,12 +7,24 @@ import {
   StyleSheet,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
+<<<<<<< HEAD
+=======
+import { ApiErrorKind } from '@/utils/apiError';
+>>>>>>> origin/sprint5task3
 
 export type StateViewStatus = 'loading' | 'error' | 'empty';
 
 export interface StateViewProps {
   /** Status tampilan: loading, error, atau empty */
   status: StateViewStatus;
+<<<<<<< HEAD
+=======
+  /**
+   * Jenis error dari ApiError (hanya relevan bila status === 'error').
+   * Menentukan tampilan: 'network' → offline, 'timeout' → timeout, lainnya → server error.
+   */
+  errorKind?: ApiErrorKind;
+>>>>>>> origin/sprint5task3
   /** Judul khusus (opsional, jika tidak diset menggunakan judul default tiap status) */
   title?: string;
   /** Pesan penjelasan atau pesan dari ApiError */
@@ -25,12 +37,24 @@ export interface StateViewProps {
 
 /**
  * StateView — Komponen reusable untuk menampilkan status request:
+<<<<<<< HEAD
  *  - 'loading' : Spinner ActivityIndicator dengan teks "Memuat data... Mohon tunggu sebentar."
  *  - 'error'   : Ikon peringatan, judul "Gagal memuat data", pesan error, dan tombol "Coba Lagi"
+=======
+ *  - 'loading' : Spinner ActivityIndicator
+ *  - 'error'   : Tampilan berbeda berdasarkan errorKind:
+ *      - 'network'  → ikon wifi mati, teks offline, tombol Coba Lagi
+ *      - 'timeout'  → ikon jam, teks timeout, tombol Coba Lagi
+ *      - lainnya    → ikon peringatan, teks server error, tombol Coba Lagi
+>>>>>>> origin/sprint5task3
  *  - 'empty'   : Ikon kosong dan pesan "Belum ada barang"
  */
 export function StateView({
   status,
+<<<<<<< HEAD
+=======
+  errorKind,
+>>>>>>> origin/sprint5task3
   title,
   message,
   onRetry,
@@ -52,14 +76,50 @@ export function StateView({
   }
 
   if (status === 'error') {
+<<<<<<< HEAD
     const errorHeading = title || 'Gagal memuat data';
     const errorMessage =
       message || 'Terjadi kesalahan saat memuat data. Silakan coba lagi.';
+=======
+    // ── Tentukan konten berdasarkan jenis error ────────────────────────────────
+    let iconName: keyof typeof Ionicons.glyphMap;
+    let iconColor: string;
+    let defaultTitle: string;
+    let defaultMessage: string;
+    let a11yRetryHint: string;
+
+    if (errorKind === 'network') {
+      // Tampilan offline: tidak ada koneksi internet
+      iconName = 'wifi-outline';
+      iconColor = '#64748B';
+      defaultTitle = title ?? 'Tidak ada koneksi internet';
+      defaultMessage =
+        message ?? 'Periksa koneksi Anda dan coba lagi.';
+      a11yRetryHint = 'Ketuk untuk mencoba kembali setelah koneksi internet tersambung';
+    } else if (errorKind === 'timeout') {
+      // Tampilan timeout: server tidak merespons tepat waktu
+      iconName = 'time-outline';
+      iconColor = '#D97706';
+      defaultTitle = title ?? 'Koneksi Lambat';
+      defaultMessage =
+        message ?? 'Waktu habis. Server terlalu lama merespons.';
+      a11yRetryHint = 'Ketuk untuk mencoba mengirim permintaan ulang ke server';
+    } else {
+      // Tampilan error server: HTTP 4xx/5xx atau error tidak dikenal
+      iconName = 'alert-circle-outline';
+      iconColor = '#DC2626';
+      defaultTitle = title ?? 'Gagal memuat data';
+      defaultMessage =
+        message ?? 'Terjadi kesalahan saat memuat data. Silakan coba lagi.';
+      a11yRetryHint = 'Ketuk untuk memuat ulang data dari server';
+    }
+>>>>>>> origin/sprint5task3
 
     return (
       <View
         style={styles.container}
         accessibilityRole="alert"
+<<<<<<< HEAD
         accessibilityLabel={`${errorHeading}. ${errorMessage}. Ketuk tombol Coba Lagi untuk mengulang.`}
       >
         <Ionicons
@@ -73,17 +133,47 @@ export function StateView({
         </Text>
         <Text style={styles.errorMessage} importantForAccessibility="no">
           {errorMessage}
+=======
+        accessibilityLabel={`${defaultTitle}. ${defaultMessage}. Ketuk tombol ${retryLabel} untuk mengulang.`}
+      >
+        <Ionicons
+          name={iconName}
+          size={48}
+          color={iconColor}
+          importantForAccessibility="no"
+        />
+        <Text
+          style={[
+            styles.errorTitle,
+            errorKind === 'network' && styles.offlineTitleColor,
+            errorKind === 'timeout' && styles.timeoutTitleColor,
+          ]}
+          importantForAccessibility="no"
+        >
+          {defaultTitle}
+        </Text>
+        <Text style={styles.errorMessage} importantForAccessibility="no">
+          {defaultMessage}
+>>>>>>> origin/sprint5task3
         </Text>
         {onRetry && (
           <Pressable
             style={({ pressed }) => [
               styles.retryButton,
+<<<<<<< HEAD
+=======
+              errorKind === 'network' && styles.retryButtonOffline,
+>>>>>>> origin/sprint5task3
               pressed && styles.retryButtonPressed,
             ]}
             onPress={onRetry}
             accessibilityRole="button"
             accessibilityLabel={retryLabel}
+<<<<<<< HEAD
             accessibilityHint="Ketuk untuk memuat ulang data dari server"
+=======
+            accessibilityHint={a11yRetryHint}
+>>>>>>> origin/sprint5task3
           >
             <Ionicons
               name="refresh"
@@ -152,6 +242,17 @@ const styles = StyleSheet.create({
     marginTop: 12,
     textAlign: 'center',
   },
+<<<<<<< HEAD
+=======
+  /** Warna judul khusus status offline */
+  offlineTitleColor: {
+    color: '#334155',
+  },
+  /** Warna judul khusus status timeout */
+  timeoutTitleColor: {
+    color: '#D97706',
+  },
+>>>>>>> origin/sprint5task3
   errorMessage: {
     fontSize: 13,
     color: '#475569',
@@ -193,6 +294,14 @@ const styles = StyleSheet.create({
     shadowRadius: 6,
     elevation: 3,
   },
+<<<<<<< HEAD
+=======
+  /** Varian tombol retry untuk kondisi offline (warna netral/abu) */
+  retryButtonOffline: {
+    backgroundColor: '#475569',
+    shadowColor: '#475569',
+  },
+>>>>>>> origin/sprint5task3
   retryButtonPressed: {
     opacity: 0.85,
     transform: [{ scale: 0.98 }],

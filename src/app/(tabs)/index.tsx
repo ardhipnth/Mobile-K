@@ -19,10 +19,6 @@ import { StateView } from '@/components/StateView';
 import { useAuth } from '@/context/AuthContext';
 import { getProducts } from '@/services/productService';
 import { Product } from '@/types/product';
-import { ApiError } from '@/utils/apiError';
-
-export type RequestStatus = 'loading' | 'success' | 'error' | 'empty';
-
 
 // Interface untuk Kategori Fakultas
 interface FacultyCategory {
@@ -112,8 +108,8 @@ export default function HomeScreen() {
 
   // ── State data produk dari API & status request ─────────────────────────────
   const [products, setProducts] = useState<Product[]>([]);
-  const [status, setStatus] = useState<RequestStatus>('loading');
-  const [errorMessage, setErrorMessage] = useState<string>('');
+  const [isLoading, setIsLoading] = useState<boolean>(true);
+  const [error, setError] = useState<string | null>(null);
 
   // Dimensi jendela untuk tata letak responsif tanpa hardcode lebar piksel
   const { width, height } = useWindowDimensions();
@@ -145,8 +141,8 @@ export default function HomeScreen() {
 
   // ── Fetch produk dari API dengan penanganan semua kondisi request ───────────
   const fetchProducts = useCallback(async () => {
-    setStatus('loading');
-    setErrorMessage('');
+    setIsLoading(true);
+    setError(null);
     try {
       const data = await getProducts();
       setProducts(data);
@@ -156,14 +152,11 @@ export default function HomeScreen() {
         setStatus('success');
       }
     } catch (err) {
-      setStatus('error');
-      if (err instanceof ApiError) {
-        setErrorMessage(err.message);
-      } else if (err instanceof Error) {
-        setErrorMessage(err.message);
-      } else {
-        setErrorMessage('Terjadi kesalahan yang tidak diketahui.');
-      }
+      setError(
+        err instanceof Error
+          ? err.message
+          : 'Terjadi kesalahan yang tidak diketahui.'
+      );
     } finally {
       // Memastikan loading selalu berhenti walau terjadi error tak terduga
       setStatus((prev) => (prev === 'loading' ? 'error' : prev));
@@ -216,12 +209,12 @@ export default function HomeScreen() {
   // Filter produk berdasarkan fakultas jika dipilih (sumber: data dari API)
   const filteredProducts = selectedFaculty
     ? products.filter(
-        (p) =>
-          p.faculty.toLowerCase().includes(selectedFaculty) ||
-          (selectedFaculty === 'fasilkom' && p.faculty.toLowerCase().includes('fasilkom')) ||
-          (selectedFaculty === 'ft' && p.faculty.toLowerCase().includes('teknik')) ||
-          (selectedFaculty === 'fmipa' && p.faculty.toLowerCase().includes('mipa'))
-      )
+      (p) =>
+        p.faculty.toLowerCase().includes(selectedFaculty) ||
+        (selectedFaculty === 'fasilkom' && p.faculty.toLowerCase().includes('fasilkom')) ||
+        (selectedFaculty === 'ft' && p.faculty.toLowerCase().includes('teknik')) ||
+        (selectedFaculty === 'fmipa' && p.faculty.toLowerCase().includes('mipa'))
+    )
     : products;
 
   // Placeholder transparan agar kartu barang pada baris terakhir tidak melar (flex: 1)
@@ -506,6 +499,28 @@ export default function HomeScreen() {
           <FlatList
             key="empty"
             data={[]}
+<<<<<<< Updated upstream
+=======
+            keyExtractor={() => 'error'}
+            ListHeaderComponent={renderListHeader}
+            ListEmptyComponent={
+              <StateView
+                status="error"
+                errorKind={errorKind}
+                message={errorMessage}
+                onRetry={fetchProducts}
+              />
+            }
+            contentContainerStyle={styles.listContentContainer}
+            showsVerticalScrollIndicator={false}
+            renderItem={() => null}
+          />
+        ) : status === 'empty' ? (
+          // Saat request berhasil tetapi data barang kosong
+          <FlatList
+            key="empty"
+            data={[]}
+>>>>>>> Stashed changes
             keyExtractor={() => 'empty'}
             ListHeaderComponent={renderListHeader}
             ListEmptyComponent={<StateView status="empty" />}

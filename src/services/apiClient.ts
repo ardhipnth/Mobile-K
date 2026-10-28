@@ -6,10 +6,25 @@
  *  - Header `Authorization`: Bearer ${token} (diambil dari SecureStore)
  *  - Header `Content-Type`: application/json
  *
+<<<<<<< HEAD
  * Menangani semua kemungkinan kegagalan request secara terpusat:
  *  - Error jaringan (offline)    → ApiError kind 'network'
  *  - HTTP 401 Unauthorized       → logout otomatis + ApiError kind 'unauthorized'
  *  - HTTP 4xx/5xx lainnya        → ApiError kind 'http' dengan pesan per status
+=======
+<<<<<<< Updated upstream
+ * Menangani respon 401 Unauthorized secara terpusat:
+ *  - Menghapus token dari SecureStore
+ *  - Memicu event unauthorized agar state login berubah menjadi tidak terautentikasi
+ *  - Melempar error ramah pengguna
+=======
+ * Menangani semua kemungkinan kegagalan request secara terpusat:
+ *  - Timeout (> 15 detik)        → ApiError kind 'timeout'
+ *  - Error jaringan (offline)    → ApiError kind 'network'
+ *  - HTTP 401 Unauthorized       → logout otomatis + ApiError kind 'unauthorized'
+ *  - HTTP 4xx/5xx lainnya        → ApiError kind 'http' dengan pesan per status
+>>>>>>> Stashed changes
+>>>>>>> origin/sprint5task3
  *
  * PENTING: Jangan pernah mencetak access token ke console!
  */
@@ -50,6 +65,15 @@ export async function notifyUnauthorized(): Promise<void> {
   await Promise.all(promises);
 }
 
+// ─── Konstanta ───────────────────────────────────────────────────────────────
+
+/**
+ * Batas waktu maksimum setiap request HTTP (dalam milidetik).
+ * Bila server tidak merespons dalam waktu ini, request dibatalkan
+ * dan ApiError kind 'timeout' dilempar.
+ */
+const REQUEST_TIMEOUT_MS = 15_000;
+
 // ─── authFetch ────────────────────────────────────────────────────────────────
 
 /**
@@ -78,6 +102,7 @@ function httpErrorMessage(status: number): string {
  * Mengambil token dari SecureStore (key "access_token") dan menyematkannya
  * ke header Authorization.
  *
+<<<<<<< HEAD
  * Alur penanganan error:
  *  1. Bila fetch() sendiri gagal (tidak ada internet, DNS gagal, dsb.) →
  *       lempar ApiError kind 'network'
@@ -87,13 +112,40 @@ function httpErrorMessage(status: number): string {
  *       lempar ApiError kind 'http' dengan pesan sesuai status
  *  4. Bila response.ok === true → kembalikan Response ke pemanggil
  *
+=======
+<<<<<<< Updated upstream
+=======
+ * Alur penanganan error:
+ *  1. Bila fetch() tidak selesai dalam REQUEST_TIMEOUT_MS (15 detik) →
+ *       batalkan request via AbortController + lempar ApiError kind 'timeout'
+ *  2. Bila fetch() sendiri gagal (tidak ada internet, DNS gagal, dsb.) →
+ *       lempar ApiError kind 'network'
+ *  3. Bila server membalas 401 →
+ *       hapus token + notifikasi listener + lempar ApiError kind 'unauthorized'
+ *  4. Bila response.ok === false (4xx/5xx selain 401) →
+ *       lempar ApiError kind 'http' dengan pesan sesuai status
+ *  5. Bila response.ok === true → kembalikan Response ke pemanggil
+ *
+>>>>>>> Stashed changes
+>>>>>>> origin/sprint5task3
  * @param path Endpoint path, misalnya '/rest/v1/products?select=*&order=id'
  * @param options Opsi RequestInit standar (method, body, custom headers, dll.)
  * @returns Promise<Response> dari fetch (hanya bila ok)
  * @throws Error 'Belum login' jika token tidak ada di SecureStore
+<<<<<<< HEAD
  * @throws ApiError kind 'network' jika tidak ada koneksi internet
  * @throws ApiError kind 'unauthorized' jika server mengembalikan HTTP 401
  * @throws ApiError kind 'http' jika server mengembalikan HTTP 4xx/5xx lainnya
+=======
+<<<<<<< Updated upstream
+ * @throws Error 'Sesi berakhir, silakan login lagi' jika server mengembalikan HTTP 401
+=======
+ * @throws ApiError kind 'timeout' jika server tidak merespons dalam 15 detik
+ * @throws ApiError kind 'network' jika tidak ada koneksi internet
+ * @throws ApiError kind 'unauthorized' jika server mengembalikan HTTP 401
+ * @throws ApiError kind 'http' jika server mengembalikan HTTP 4xx/5xx lainnya
+>>>>>>> Stashed changes
+>>>>>>> origin/sprint5task3
  */
 export async function authFetch(
   path: string,
@@ -137,22 +189,64 @@ export async function authFetch(
     ...customHeaders,
   };
 
+<<<<<<< Updated upstream
   // 5. Kirim HTTP request ke server (tanpa logging token ke console)
+<<<<<<< HEAD
   //    Bungkus dengan try/catch untuk menangkap kegagalan jaringan:
   //    fetch() melempar TypeError bila tidak ada internet atau DNS gagal.
+=======
+  const response = await fetch(url, {
+    ...options,
+    headers,
+  });
+=======
+  // 5. Kirim HTTP request ke server dengan batas waktu REQUEST_TIMEOUT_MS.
+  //    AbortController digunakan agar fetch dapat dibatalkan bila timeout.
+  //    Bungkus dengan try/catch untuk menangkap:
+  //      - AbortError  → timeout terlewati → ApiError kind 'timeout'
+  //      - TypeError   → tidak ada internet / DNS gagal → ApiError kind 'network'
+  const controller = new AbortController();
+  const timeoutId = setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS);
+
+>>>>>>> origin/sprint5task3
   let response: Response;
   try {
     response = await fetch(url, {
       ...options,
       headers,
+<<<<<<< HEAD
     });
   } catch {
     // Tidak ada response sama sekali → kegagalan di sisi jaringan
+=======
+      signal: controller.signal,
+    });
+  } catch (fetchErr) {
+    // Selalu bersihkan timer terlebih dahulu
+    clearTimeout(timeoutId);
+
+    // AbortError terjadi ketika AbortController.abort() dipanggil (timeout)
+    if (fetchErr instanceof Error && fetchErr.name === 'AbortError') {
+      throw new ApiError(
+        'timeout',
+        'Waktu habis. Server terlalu lama merespons.'
+      );
+    }
+
+    // Kegagalan lain (tidak ada koneksi, DNS gagal, dll.) → error jaringan
+>>>>>>> origin/sprint5task3
     throw new ApiError(
       'network',
       'Tidak ada koneksi internet. Periksa koneksi Anda dan coba lagi.'
     );
   }
+<<<<<<< HEAD
+=======
+>>>>>>> Stashed changes
+
+  // Request selesai sebelum timeout — hentikan timer
+  clearTimeout(timeoutId);
+>>>>>>> origin/sprint5task3
 
   // 6. Penanganan status 401 Unauthorized:
   //    - Hapus token dari SecureStore
