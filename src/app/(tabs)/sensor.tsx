@@ -5,10 +5,15 @@
  *  1. Sensor     : Accelerometer.isAvailableAsync() memverifikasi sensor ada di perangkat.
  *  2. Permission : Accelerometer.requestPermissionsAsync() diminta satu kali.
  *                  Bila ditolak → tampilkan pesan + tombol "Buka Pengaturan".
- *  3. Listener   : Accelerometer.addListener() dipasang; subscription disimpan di ref
- *                  lalu dilepas (subscription.remove()) saat unmount.
+ *  3. Listener   : Accelerometer.addListener() dipasang dengan interval 500 ms;
+ *                  subscription disimpan di ref lalu dilepas (subscription.remove())
+ *                  saat unmount — tidak ada kebocoran memori.
  *  4. Data       : Nilai {x, y, z} disimpan di state dan diperbarui tiap listener terpicu.
- *  5. UI         : Nilai x/y/z tampil dalam kartu, tema putih–teal sesuai KampusMarket.
+ *                  Riwayat 20 nilai terakhir (AccelData[]) disimpan di historyRef dan
+ *                  di-copy ke state hanya untuk memicu re-render grafik.
+ *  5. UI         : Nilai x/y/z tampil dalam tiga kartu (2 desimal, satuan g), indikator
+ *                  "Sensor Aktif", dan grafik riwayat dirender murni dengan View.
+ *                  Tema putih–teal sesuai KampusMarket.
  *
  * Aksesibilitas : accessibilityLabel, accessibilityRole, accessibilityHint di setiap
  *                 elemen interaktif. Tap target minimal 44×44.
@@ -20,6 +25,7 @@ import { useRouter } from 'expo-router';
 import { Accelerometer } from 'expo-sensors';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import {
+  Dimensions,
   Linking,
   Platform,
   Pressable,
@@ -30,6 +36,7 @@ import {
   View,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
+
 type Subscription = ReturnType<typeof Accelerometer.addListener>;
 
 // ─── Tipe Data ────────────────────────────────────────────────────────────────
@@ -44,8 +51,159 @@ interface AccelData {
 
 // ─── Konstanta ────────────────────────────────────────────────────────────────
 
-/** Interval update listener dalam milidetik */
-const UPDATE_INTERVAL_MS = 100;
+/** Interval update listener dalam milidetik — 500 ms agar tampilan tidak terlalu cepat */
+const UPDATE_INTERVAL_MS = 500;
+
+/** Jumlah maksimal entri riwayat untuk grafik */
+const HISTORY_MAX = 20;
+
+/** Tinggi area grafik dalam piksel */
+const CHART_HEIGHT = 80;
+
+// ─── Helper: normalisasi nilai [-2, 2] g ke [0, CHART_HEIGHT] ────────────────
+function normY(value: number): number {
+  const clamped = Math.max(-2, Math.min(2, value)); // jaga rentang
+  return ((clamped + 2) / 4) * CHART_HEIGHT;        // map ke tinggi grafik
+}
+
+// ─── Sub-komponen: Grafik Riwayat ─────────────────────────────────────────────
+/**
+ * LineChart murni dengan View — tidak memerlukan library tambahan.
+ * Menggambar titik-titik data sebagai dot kecil dan menghubungkannya
+ * dengan segmen garis yang dirotasi secara CSS transform.
+ */
+function LineChart({
+  data,
+  color,
+  label,
+}: {
+  data: number[];
+  color: string;
+  label: string;
+}) {
+  const screenWidth = Dimensions.get('window').width;
+  // Lebar tersedia: layar - padding kartu (20*2) - padding dalam (20*2)
+  const chartWidth = screenWidth - 40 - 40;
+  const count = data.length;
+
+  if (count < 2) {
+    return (
+      <View
+        style={[chartStyles.container, { height: CHART_HEIGHT, width: chartWidth }]}
+        accessibilityElementsHidden
+        importantForAccessibility="no"
+      >
+        <Text style={chartStyles.waitText}>Menunggu data…</Text>
+      </View>
+    );
+  }
+
+  const stepX = chartWidth / (HISTORY_MAX - 1);
+
+  // Hitung posisi setiap titik
+  const points = data.map((v, i) => ({
+    x: i * stepX,
+    y: CHART_HEIGHT - normY(v), // sumbu Y: 0 = atas
+  }));
+
+  return (
+    <View
+      style={[chartStyles.container, { height: CHART_HEIGHT, width: chartWidth }]}
+      accessibilityElementsHidden
+      importantForAccessibility="no"
+    >
+      {/* Label sumbu */}
+      <Text style={[chartStyles.axisLabel, { color }]}>{label}</Text>
+
+      {/* Garis nol (nilai 0 g) */}
+      <View
+        style={[
+          chartStyles.zeroLine,
+          { top: CHART_HEIGHT - normY(0) },
+        ]}
+      />
+
+      {/* Segmen garis antar titik */}
+      {points.slice(0, -1).map((p, i) => {
+        const next = points[i + 1];
+        const dx = next.x - p.x;
+        const dy = next.y - p.y;
+        const length = Math.sqrt(dx * dx + dy * dy);
+        const angle = Math.atan2(dy, dx) * (180 / Math.PI);
+        return (
+          <View
+            key={`seg-${i}`}
+            style={{
+              position: 'absolute',
+              left: p.x,
+              top: p.y,
+              width: length,
+              height: 2,
+              backgroundColor: color,
+              opacity: 0.7,
+              borderRadius: 1,
+              transformOrigin: '0 50%',
+              transform: [{ rotate: `${angle}deg` }],
+            }}
+          />
+        );
+      })}
+
+      {/* Titik data */}
+      {points.map((p, i) => (
+        <View
+          key={`dot-${i}`}
+          style={{
+            position: 'absolute',
+            left: p.x - 3,
+            top: p.y - 3,
+            width: 6,
+            height: 6,
+            borderRadius: 3,
+            backgroundColor: color,
+            opacity: i === points.length - 1 ? 1 : 0.45,
+          }}
+        />
+      ))}
+    </View>
+  );
+}
+
+const chartStyles = StyleSheet.create({
+  container: {
+    position: 'relative',
+    backgroundColor: '#F8FAFC',
+    borderRadius: 8,
+    overflow: 'hidden',
+    alignSelf: 'stretch',
+  },
+  zeroLine: {
+    position: 'absolute',
+    left: 0,
+    right: 0,
+    height: 1,
+    backgroundColor: '#CBD5E1',
+  },
+  axisLabel: {
+    position: 'absolute',
+    top: 2,
+    right: 4,
+    fontSize: 9,
+    fontWeight: '700',
+    opacity: 0.6,
+  },
+  waitText: {
+    position: 'absolute',
+    top: 0,
+    left: 0,
+    right: 0,
+    bottom: 0,
+    textAlign: 'center',
+    textAlignVertical: 'center',
+    fontSize: 11,
+    color: '#94A3B8',
+  },
+});
 
 // ─── Komponen Utama ───────────────────────────────────────────────────────────
 
@@ -57,11 +215,26 @@ export default function SensorScreen() {
   const [permissionStatus, setPermissionStatus] = useState<PermissionStatus>('undetermined');
   const [isListening, setIsListening] = useState(false);
 
-  // State: data accelerometer
+  // State: data accelerometer terkini (ditampilkan di kartu)
   const [accelData, setAccelData] = useState<AccelData>({ x: 0, y: 0, z: 0 });
+
+  // State: riwayat 20 nilai terakhir per sumbu (untuk grafik)
+  const [historyX, setHistoryX] = useState<number[]>([]);
+  const [historyY, setHistoryY] = useState<number[]>([]);
+  const [historyZ, setHistoryZ] = useState<number[]>([]);
 
   // Ref: simpan subscription agar bisa dilepas saat unmount
   const subscriptionRef = useRef<Subscription | null>(null);
+
+  // Ref: simpan buffer riwayat tanpa memicu re-render berulang
+  const historyBufX = useRef<number[]>([]);
+  const historyBufY = useRef<number[]>([]);
+  const historyBufZ = useRef<number[]>([]);
+
+  // ── Helper: tambah nilai baru ke buffer riwayat (maks HISTORY_MAX) ────────
+  function pushHistory(buf: React.MutableRefObject<number[]>, value: number) {
+    buf.current = [...buf.current, value].slice(-HISTORY_MAX);
+  }
 
   // ── Lepas listener saat unmount ───────────────────────────────────────────
   useEffect(() => {
@@ -93,7 +266,6 @@ export default function SensorScreen() {
   // ── 2. Minta izin accelerometer ──────────────────────────────────────────
   const requestPermission = useCallback(async (): Promise<PermissionStatus> => {
     try {
-      // API permission hanya tersedia di Android/iOS expo-sensors modern
       if (typeof Accelerometer.requestPermissionsAsync !== 'function') {
         setPermissionStatus('granted');
         return 'granted';
@@ -105,7 +277,6 @@ export default function SensorScreen() {
       setPermissionStatus(mapped);
       return mapped;
     } catch {
-      // Fallback jika API bermasalah: coba pasang listener saja
       setPermissionStatus('granted');
       return 'granted';
     }
@@ -115,24 +286,30 @@ export default function SensorScreen() {
   const startListening = useCallback(async () => {
     if (!isAvailable) return;
 
-    // Minta izin bila belum ditentukan
     let currentStatus = permissionStatus;
     if (currentStatus === 'undetermined') {
       currentStatus = await requestPermission();
     }
     if (currentStatus === 'denied') return;
 
+    // Set interval 500 ms — tampilan tidak terlalu cepat berubah
     Accelerometer.setUpdateInterval(UPDATE_INTERVAL_MS);
 
-    // Pasang listener; simpan subscription ke ref
     subscriptionRef.current = Accelerometer.addListener((data: AccelData) => {
-      // 4. Simpan nilai ke state → UI diperbarui otomatis
+      // 4a. Perbarui data terkini → kartu nilai
       setAccelData(data);
 
-      // 5. Debug: cetak hanya di mode development
+      // 4b. Perbarui riwayat → grafik
+      pushHistory(historyBufX, data.x);
+      pushHistory(historyBufY, data.y);
+      pushHistory(historyBufZ, data.z);
+      setHistoryX([...historyBufX.current]);
+      setHistoryY([...historyBufY.current]);
+      setHistoryZ([...historyBufZ.current]);
+
       if (__DEV__) {
         console.log(
-          `[Accelerometer] x=${data.x.toFixed(4)}  y=${data.y.toFixed(4)}  z=${data.z.toFixed(4)}`
+          `[Accelerometer] x=${data.x.toFixed(2)}  y=${data.y.toFixed(2)}  z=${data.z.toFixed(2)}`
         );
       }
     });
@@ -256,7 +433,7 @@ export default function SensorScreen() {
           contentContainerStyle={styles.scrollContent}
           showsVerticalScrollIndicator={false}
         >
-          {/* ── Kartu Status Sensor ─────────────────────────────────────── */}
+          {/* ── Indikator Status "Sensor Aktif" ──────────────────────────── */}
           <View
             style={[
               styles.statusCard,
@@ -294,57 +471,93 @@ export default function SensorScreen() {
             </Text>
           </View>
 
-          {/* ── Kartu Nilai x / y / z ───────────────────────────────────── */}
+          {/* ── Kartu Nilai X, Y, Z (2 desimal + satuan g) ───────────────── */}
           <View
             style={styles.dataCard}
             accessibilityRole="text"
             accessibilityLabel={
               `Nilai accelerometer: ` +
-              `X ${accelData.x.toFixed(3)}, ` +
-              `Y ${accelData.y.toFixed(3)}, ` +
-              `Z ${accelData.z.toFixed(3)}`
+              `X ${accelData.x.toFixed(2)} g, ` +
+              `Y ${accelData.y.toFixed(2)} g, ` +
+              `Z ${accelData.z.toFixed(2)} g`
             }
           >
             <Text style={styles.dataCardTitle} importantForAccessibility="no">
-              Data Accelerometer (g)
+              Data Accelerometer
             </Text>
 
             <View style={styles.axisGrid} importantForAccessibility="no">
-              {/* Sumbu X */}
+              {/* Kartu X */}
               <View style={[styles.axisCard, styles.axisCardX]}>
-                <Text style={styles.axisLabel}>Sumbu X</Text>
-                <Text style={styles.axisValue}>{accelData.x.toFixed(4)}</Text>
+                <Text style={styles.axisLabel}>X</Text>
+                <Text style={styles.axisValue}>{accelData.x.toFixed(2)}</Text>
+                <Text style={styles.axisUnit}>g</Text>
                 <Text style={styles.axisDesc}>Kiri ↔ Kanan</Text>
               </View>
 
-              {/* Sumbu Y */}
+              {/* Kartu Y */}
               <View style={[styles.axisCard, styles.axisCardY]}>
-                <Text style={styles.axisLabel}>Sumbu Y</Text>
-                <Text style={styles.axisValue}>{accelData.y.toFixed(4)}</Text>
+                <Text style={styles.axisLabel}>Y</Text>
+                <Text style={styles.axisValue}>{accelData.y.toFixed(2)}</Text>
+                <Text style={styles.axisUnit}>g</Text>
                 <Text style={styles.axisDesc}>Atas ↕ Bawah</Text>
               </View>
 
-              {/* Sumbu Z */}
+              {/* Kartu Z */}
               <View style={[styles.axisCard, styles.axisCardZ]}>
-                <Text style={styles.axisLabel}>Sumbu Z</Text>
-                <Text style={styles.axisValue}>{accelData.z.toFixed(4)}</Text>
+                <Text style={styles.axisLabel}>Z</Text>
+                <Text style={styles.axisValue}>{accelData.z.toFixed(2)}</Text>
+                <Text style={styles.axisUnit}>g</Text>
                 <Text style={styles.axisDesc}>Depan ↔ Belakang</Text>
               </View>
             </View>
 
-            {/* Magnitude (besar vektor) */}
+            {/* Magnitude */}
             <View style={styles.magnitudeRow} importantForAccessibility="no">
-              <Text style={styles.magnitudeLabel}>Magnitude (|a|)</Text>
+              <Text style={styles.magnitudeLabel}>Magnitude |a|</Text>
               <Text style={styles.magnitudeValue}>
                 {Math.sqrt(
                   accelData.x ** 2 + accelData.y ** 2 + accelData.z ** 2
-                ).toFixed(4)}{' '}
+                ).toFixed(2)}{' '}
                 g
               </Text>
             </View>
           </View>
 
-          {/* ── Tombol Mulai / Hentikan ─────────────────────────────────── */}
+          {/* ── Grafik Riwayat 20 Nilai Terakhir ─────────────────────────── */}
+          <View
+            style={styles.chartCard}
+            accessibilityRole="text"
+            accessibilityLabel="Grafik riwayat 20 nilai accelerometer terakhir untuk sumbu X, Y, dan Z"
+          >
+            <Text style={styles.dataCardTitle} importantForAccessibility="no">
+              Riwayat 20 Nilai Terakhir
+            </Text>
+
+            {/* Grafik X */}
+            <View style={styles.chartRow} importantForAccessibility="no">
+              <Text style={[styles.chartAxisTag, { color: '#3B82F6' }]}>X</Text>
+              <LineChart data={historyX} color="#3B82F6" label="X (g)" />
+            </View>
+
+            {/* Grafik Y */}
+            <View style={styles.chartRow} importantForAccessibility="no">
+              <Text style={[styles.chartAxisTag, { color: '#10B981' }]}>Y</Text>
+              <LineChart data={historyY} color="#10B981" label="Y (g)" />
+            </View>
+
+            {/* Grafik Z */}
+            <View style={styles.chartRow} importantForAccessibility="no">
+              <Text style={[styles.chartAxisTag, { color: '#F97316' }]}>Z</Text>
+              <LineChart data={historyZ} color="#F97316" label="Z (g)" />
+            </View>
+
+            <Text style={styles.chartFootnote} importantForAccessibility="no">
+              Garis abu-abu = nilai 0 g · rentang tampil: −2 g s.d. +2 g
+            </Text>
+          </View>
+
+          {/* ── Tombol Mulai / Hentikan ──────────────────────────────────── */}
           <Pressable
             style={({ pressed }) => [
               styles.toggleButton,
@@ -374,7 +587,7 @@ export default function SensorScreen() {
             </Text>
           </Pressable>
 
-          {/* ── Info Box ────────────────────────────────────────────────── */}
+          {/* ── Info Box ─────────────────────────────────────────────────── */}
           <View
             style={styles.infoBox}
             accessibilityRole="text"
@@ -556,17 +769,21 @@ const styles = StyleSheet.create({
   axisCardY: { backgroundColor: '#F0FDFA' },
   axisCardZ: { backgroundColor: '#FFF7ED' },
   axisLabel: {
-    fontSize: 11,
-    fontWeight: '700',
-    color: '#64748B',
-    textTransform: 'uppercase',
+    fontSize: 13,
+    fontWeight: '800',
+    color: '#475569',
     letterSpacing: 0.4,
-    marginBottom: 6,
+    marginBottom: 4,
   },
   axisValue: {
-    fontSize: 16,
+    fontSize: 22,
     fontWeight: '800',
     color: '#0F172A',
+  },
+  axisUnit: {
+    fontSize: 11,
+    fontWeight: '600',
+    color: '#94A3B8',
     marginBottom: 4,
   },
   axisDesc: {
@@ -592,6 +809,36 @@ const styles = StyleSheet.create({
     fontSize: 15,
     fontWeight: '800',
     color: '#0F766E',
+  },
+
+  // Chart Card
+  chartCard: {
+    backgroundColor: '#FFFFFF',
+    borderRadius: 20,
+    padding: 20,
+    shadowColor: '#0F172A',
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.08,
+    shadowRadius: 16,
+    elevation: 4,
+    gap: 12,
+  },
+  chartRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+  },
+  chartAxisTag: {
+    width: 16,
+    fontSize: 12,
+    fontWeight: '800',
+    textAlign: 'center',
+  },
+  chartFootnote: {
+    fontSize: 10,
+    color: '#94A3B8',
+    textAlign: 'center',
+    marginTop: 4,
   },
 
   // Toggle Button
