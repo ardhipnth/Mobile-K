@@ -1,24 +1,28 @@
-import React, { useState, useMemo, useEffect, useCallback } from 'react';
-import {
-  View,
-  Text,
-  Image,
-  Pressable,
-  StyleSheet,
-  FlatList,
-  StatusBar,
-  Alert,
-  useWindowDimensions,
-} from 'react-native';
-import { SafeAreaView } from 'react-native-safe-area-context';
-import { Ionicons } from '@expo/vector-icons';
-import { useRouter } from 'expo-router';
-import { ProductCard, ProductItem } from '@/components/ProductCard';
 import { BottomNav, TabKey } from '@/components/BottomNav';
+import { ProductCard, ProductItem } from '@/components/ProductCard';
 import { StateView } from '@/components/StateView';
 import { useAuth } from '@/context/AuthContext';
 import { getProducts } from '@/services/productService';
 import { Product } from '@/types/product';
+import { ApiError } from '@/utils/apiError';
+import { Ionicons } from '@expo/vector-icons';
+import { useRouter } from 'expo-router';
+import { useCallback, useEffect, useMemo, useState } from 'react';
+import {
+  Alert,
+  FlatList,
+  Image,
+  Pressable,
+  StatusBar,
+  StyleSheet,
+  Text,
+  useWindowDimensions,
+  View,
+} from 'react-native';
+import { SafeAreaView } from 'react-native-safe-area-context';
+
+export type RequestStatus = 'loading' | 'success' | 'error' | 'empty';
+
 
 // Interface untuk Kategori Fakultas
 interface FacultyCategory {
@@ -108,8 +112,8 @@ export default function HomeScreen() {
 
   // ── State data produk dari API & status request ─────────────────────────────
   const [products, setProducts] = useState<Product[]>([]);
-  const [isLoading, setIsLoading] = useState<boolean>(true);
-  const [error, setError] = useState<string | null>(null);
+  const [status, setStatus] = useState<RequestStatus>('loading');
+  const [errorMessage, setErrorMessage] = useState<string>('');
 
   // Dimensi jendela untuk tata letak responsif tanpa hardcode lebar piksel
   const { width, height } = useWindowDimensions();
@@ -141,8 +145,8 @@ export default function HomeScreen() {
 
   // ── Fetch produk dari API dengan penanganan semua kondisi request ───────────
   const fetchProducts = useCallback(async () => {
-    setIsLoading(true);
-    setError(null);
+    setStatus('loading');
+    setErrorMessage('');
     try {
       const data = await getProducts();
       setProducts(data);
@@ -152,11 +156,14 @@ export default function HomeScreen() {
         setStatus('success');
       }
     } catch (err) {
-      setError(
-        err instanceof Error
-          ? err.message
-          : 'Terjadi kesalahan yang tidak diketahui.'
-      );
+      setStatus('error');
+      if (err instanceof ApiError) {
+        setErrorMessage(err.message);
+      } else if (err instanceof Error) {
+        setErrorMessage(err.message);
+      } else {
+        setErrorMessage('Terjadi kesalahan yang tidak diketahui.');
+      }
     } finally {
       // Memastikan loading selalu berhenti walau terjadi error tak terduga
       setStatus((prev) => (prev === 'loading' ? 'error' : prev));
@@ -459,7 +466,7 @@ export default function HomeScreen() {
 
   return (
     <SafeAreaView style={styles.safeArea}>
-      <StatusBar barStyle="dark-content" backgroundColor="#F8FAFC" />
+      <StatusBar barStyle="dark-content" />
 
       {/* Screen Wrapper */}
       <View style={styles.screenContainer}>
@@ -499,28 +506,6 @@ export default function HomeScreen() {
           <FlatList
             key="empty"
             data={[]}
-<<<<<<< Updated upstream
-=======
-            keyExtractor={() => 'error'}
-            ListHeaderComponent={renderListHeader}
-            ListEmptyComponent={
-              <StateView
-                status="error"
-                errorKind={errorKind}
-                message={errorMessage}
-                onRetry={fetchProducts}
-              />
-            }
-            contentContainerStyle={styles.listContentContainer}
-            showsVerticalScrollIndicator={false}
-            renderItem={() => null}
-          />
-        ) : status === 'empty' ? (
-          // Saat request berhasil tetapi data barang kosong
-          <FlatList
-            key="empty"
-            data={[]}
->>>>>>> Stashed changes
             keyExtractor={() => 'empty'}
             ListHeaderComponent={renderListHeader}
             ListEmptyComponent={<StateView status="empty" />}
