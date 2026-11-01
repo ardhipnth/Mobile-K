@@ -12,23 +12,23 @@
  * Keamanan: token tidak ditampilkan di layar maupun console.
  */
 
-import React, { useState } from 'react';
-import {
-  View,
-  Text,
-  Pressable,
-  StyleSheet,
-  ScrollView,
-  Alert,
-  ActivityIndicator,
-  StatusBar,
-} from 'react-native';
-import { SafeAreaView } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import { useRouter } from 'expo-router';
+import { useState } from 'react';
+import {
+  ActivityIndicator,
+  Alert,
+  Pressable,
+  ScrollView,
+  StatusBar,
+  StyleSheet,
+  Text,
+  View,
+} from 'react-native';
+import { SafeAreaView } from 'react-native-safe-area-context';
 
-import { useAuth } from '@/context/AuthContext';
 import { BottomNav, TabKey } from '@/components/BottomNav';
+import { useAuth } from '@/context/AuthContext';
 
 export default function ProfileScreen() {
   const { user, logout } = useAuth();
@@ -68,6 +68,11 @@ export default function ProfileScreen() {
     );
   };
 
+  // ── Handler Navigasi ke Sensor ────────────────────────────────────────────
+  const handleSensorPress = () => {
+    router.push('/(tabs)/sensor' as any);
+  };
+
   // ── Handler Tab Navigasi ───────────────────────────────────────────────────
   const handleTabPress = (tab: TabKey) => {
     setCurrentTab(tab);
@@ -80,7 +85,7 @@ export default function ProfileScreen() {
 
   return (
     <SafeAreaView style={styles.safeArea}>
-      <StatusBar barStyle="dark-content" backgroundColor="#F8FAFC" />
+      <StatusBar barStyle="dark-content" />
 
       <View style={styles.screenContainer}>
         <ScrollView
@@ -193,6 +198,46 @@ export default function ProfileScreen() {
                 </Text>
               </View>
             </View>
+          </View>
+
+          {/* ── Seksi Fitur ─────────────────────────────────────────────────── */}
+          <View style={styles.featureSection}>
+            <Text style={styles.sectionTitle}>Fitur</Text>
+
+            {/* Tombol Sensor Gerak */}
+            <Pressable
+              style={({ pressed }) => [
+                styles.featureRow,
+                pressed && styles.featureRowPressed,
+              ]}
+              onPress={handleSensorPress}
+              accessibilityRole="button"
+              accessibilityLabel="Sensor Gerak, buka halaman pembaca accelerometer"
+              accessibilityHint="Navigasi ke halaman yang menampilkan data accelerometer perangkat secara real-time"
+            >
+              <View style={styles.featureIconWrapper} importantForAccessibility="no">
+                <Ionicons
+                  name="phone-portrait-outline"
+                  size={18}
+                  color="#0F766E"
+                  importantForAccessibility="no"
+                />
+              </View>
+              <View style={styles.featureContent}>
+                <Text style={styles.featureLabel} importantForAccessibility="no">
+                  Sensor Gerak
+                </Text>
+                <Text style={styles.featureDesc} importantForAccessibility="no">
+                  Baca data accelerometer perangkat
+                </Text>
+              </View>
+              <Ionicons
+                name="chevron-forward"
+                size={18}
+                color="#CBD5E1"
+                importantForAccessibility="no"
+              />
+            </Pressable>
           </View>
 
           {/* ── Tombol Logout ──────────────────────────────────────────────── */}
@@ -391,6 +436,53 @@ const styles = StyleSheet.create({
     fontSize: 15,
     fontWeight: '600',
     color: '#0F172A',
+  },
+
+  // Seksi Fitur
+  featureSection: {
+    backgroundColor: '#FFFFFF',
+    borderRadius: 16,
+    marginBottom: 20,
+    shadowColor: '#0F172A',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.06,
+    shadowRadius: 8,
+    elevation: 2,
+    overflow: 'hidden',
+  },
+  featureRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingHorizontal: 16,
+    paddingVertical: 14,
+    borderTopWidth: 1,
+    borderTopColor: '#F1F5F9',
+    minHeight: 56,
+  },
+  featureRowPressed: {
+    backgroundColor: '#F8FAFC',
+  },
+  featureIconWrapper: {
+    width: 36,
+    height: 36,
+    borderRadius: 10,
+    backgroundColor: '#F0FDFA',
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginRight: 12,
+  },
+  featureContent: {
+    flex: 1,
+  },
+  featureLabel: {
+    fontSize: 15,
+    fontWeight: '600',
+    color: '#0F172A',
+    marginBottom: 2,
+  },
+  featureDesc: {
+    fontSize: 12,
+    color: '#64748B',
   },
 
   // Tombol Logout

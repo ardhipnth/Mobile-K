@@ -20,6 +20,14 @@ export default function TabLayout() {
           title: 'Profil',
         }}
       />
+      <Tabs.Screen
+        name="sensor"
+        options={{
+          title: 'Sensor Gerak',
+          // Disembunyikan dari tab bar bawaan karena navigasi ditangani via Profil
+          href: null,
+        }}
+      />
     </Tabs>
   );
 }
