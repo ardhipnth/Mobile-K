@@ -14,9 +14,27 @@
  *  5. UI         : Nilai x/y/z tampil dalam tiga kartu (2 desimal, satuan g), indikator
  *                  "Sensor Aktif", dan grafik riwayat dirender murni dengan View.
  *                  Tema putih–teal sesuai KampusMarket.
+ *  6. Goyangan   : expo-sensors melaporkan nilai dalam g (1 g ≈ 9,8 m/s²).
+ *                  Magnitude |a| = √(x²+y²+z²) dihitung setiap sampel masuk.
+ *                  Saat diam rata: z ≈ 1 g → |a| ≈ 1 g.
+ *                  Goyangan cepat menghasilkan |a| jauh di atas 1 g — nilai 2,5 g
+ *                  dipilih sebagai SHAKE_THRESHOLD: cukup sensitif untuk ayunan
+ *                  tangan normal, namun tidak terpicu oleh langkah biasa.
+ *
+ *                  Alur deteksi goyangan:
+ *                    Gerak pengguna
+ *                      → sensor menghasilkan percepatan besar pada satu/lebih sumbu
+ *                      → magnitude melonjak melampaui SHAKE_THRESHOLD
+ *                      → Vibration.vibrate(400) memberi umpan balik taktil 400 ms
+ *                      → status berubah ke "Goyangan Terdeteksi" (oranye, live region)
+ *                      → cooldown SHAKE_COOLDOWN_MS (1 detik) menahan deteksi berikutnya
+ *                      → setelah ~1,5 detik status kembali ke "Siap"
+ *
+ *                  Semua timer (resetTimer, cooldownTimer) dibersihkan saat unmount.
  *
  * Aksesibilitas : accessibilityLabel, accessibilityRole, accessibilityHint di setiap
  *                 elemen interaktif. Tap target minimal 44×44.
+ *                 ShakeStatusBanner memakai accessibilityLiveRegion="polite".
  * Debug         : console.log hanya berjalan saat __DEV__ === true.
  */
 
@@ -33,6 +51,7 @@ import {
   StatusBar,
   StyleSheet,
   Text,
+  Vibration,
   View,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
@@ -42,6 +61,9 @@ type Subscription = ReturnType<typeof Accelerometer.addListener>;
 // ─── Tipe Data ────────────────────────────────────────────────────────────────
 
 type PermissionStatus = 'undetermined' | 'granted' | 'denied';
+
+/** Status deteksi goyangan */
+type ShakeStatus = 'idle' | 'detected';
 
 interface AccelData {
   x: number;
@@ -59,6 +81,29 @@ const HISTORY_MAX = 20;
 
 /** Tinggi area grafik dalam piksel */
 const CHART_HEIGHT = 80;
+
+/**
+ * Threshold goyangan dalam satuan g (gravitasi bumi ≈ 9,8 m/s²).
+ *
+ * expo-sensors melaporkan nilai dalam g. Saat perangkat diam dan rata,
+ * |a| ≈ 1 g (gravitasi). Goyangan cepat menghasilkan |a| 2–4 g atau lebih.
+ * Nilai 2,5 g: cukup sensitif untuk ayunan tangan normal, tidak terpicu
+ * oleh langkah biasa atau getaran meja.
+ *
+ * Ubah nilai ini untuk menyesuaikan kepekaan:
+ *   - Lebih kecil (mis. 1,8) → lebih sensitif
+ *   - Lebih besar (mis. 3,5) → butuh goyangan lebih keras
+ */
+const SHAKE_THRESHOLD = 2.5; // g
+
+/**
+ * Jeda minimum antar dua deteksi goyangan (cooldown) dalam milidetik.
+ * Mencegah satu goyangan memicu Vibration berkali-kali.
+ */
+const SHAKE_COOLDOWN_MS = 1000; // 1 detik
+
+/** Durasi tampil status "Goyangan Terdeteksi" sebelum kembali ke "Siap" */
+const SHAKE_RESET_MS = 1500; // 1,5 detik
 
 // ─── Helper: normalisasi nilai [-2, 2] g ke [0, CHART_HEIGHT] ────────────────
 function normY(value: number): number {
@@ -205,6 +250,95 @@ const chartStyles = StyleSheet.create({
   },
 });
 
+// ─── Sub-komponen: Banner Status Goyangan ────────────────────────────────────
+/**
+ * Menampilkan status deteksi goyangan.
+ * accessibilityLiveRegion="polite" → pembaca layar mengumumkan perubahan
+ * secara otomatis tanpa mengganggu konten lain.
+ */
+function ShakeStatusBanner({ status }: { status: ShakeStatus }) {
+  const isDetected = status === 'detected';
+
+  return (
+    <View
+      style={[
+        shakeStyles.banner,
+        isDetected ? shakeStyles.bannerDetected : shakeStyles.bannerIdle,
+      ]}
+      // accessibilityLiveRegion: pembaca layar membacakan teks saat berubah
+      accessibilityLiveRegion="polite"
+      accessibilityLabel={
+        isDetected
+          ? 'Goyangan terdeteksi! Perangkat bergetar sebagai konfirmasi.'
+          : 'Status goyangan: Siap. Goyangkan perangkat untuk mencoba.'
+      }
+      accessibilityRole="text"
+    >
+      <View style={shakeStyles.bannerRow}>
+        <Ionicons
+          name={isDetected ? 'flash' : 'radio-button-on-outline'}
+          size={18}
+          color={isDetected ? '#9A3412' : '#0F766E'}
+          importantForAccessibility="no"
+        />
+        <Text
+          style={[
+            shakeStyles.bannerText,
+            isDetected ? shakeStyles.bannerTextDetected : shakeStyles.bannerTextIdle,
+          ]}
+          importantForAccessibility="no"
+        >
+          {isDetected ? 'Goyangan Terdeteksi!' : 'Siap'}
+        </Text>
+      </View>
+      <Text style={shakeStyles.bannerSub} importantForAccessibility="no">
+        {isDetected
+          ? `Magnitude > ${SHAKE_THRESHOLD} g`
+          : `Threshold: ${SHAKE_THRESHOLD} g · Goyangkan perangkat`}
+      </Text>
+    </View>
+  );
+}
+
+const shakeStyles = StyleSheet.create({
+  banner: {
+    borderRadius: 14,
+    paddingHorizontal: 16,
+    paddingVertical: 14,
+    borderWidth: 1.5,
+  },
+  bannerIdle: {
+    backgroundColor: '#F0FDFA',
+    borderColor: '#99F6E4',
+  },
+  bannerDetected: {
+    backgroundColor: '#FFF7ED',
+    borderColor: '#FDBA74',
+  },
+  bannerRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    marginBottom: 4,
+  },
+  bannerText: {
+    fontSize: 15,
+    fontWeight: '800',
+    letterSpacing: -0.1,
+  },
+  bannerTextIdle: {
+    color: '#0F766E',
+  },
+  bannerTextDetected: {
+    color: '#9A3412',
+  },
+  bannerSub: {
+    fontSize: 11,
+    color: '#78716C',
+    marginLeft: 26,
+  },
+});
+
 // ─── Komponen Utama ───────────────────────────────────────────────────────────
 
 export default function SensorScreen() {
@@ -223,6 +357,9 @@ export default function SensorScreen() {
   const [historyY, setHistoryY] = useState<number[]>([]);
   const [historyZ, setHistoryZ] = useState<number[]>([]);
 
+  // State: status deteksi goyangan
+  const [shakeStatus, setShakeStatus] = useState<ShakeStatus>('idle');
+
   // Ref: simpan subscription agar bisa dilepas saat unmount
   const subscriptionRef = useRef<Subscription | null>(null);
 
@@ -231,16 +368,32 @@ export default function SensorScreen() {
   const historyBufY = useRef<number[]>([]);
   const historyBufZ = useRef<number[]>([]);
 
+  // Ref: timer untuk reset status "Goyangan Terdeteksi" → "Siap"
+  const shakeResetTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  // Ref: flag cooldown — true berarti sedang dalam masa jeda antar goyangan
+  const shakeCooldownRef = useRef(false);
+
+  // Ref: timer untuk mengakhiri cooldown
+  const shakeCooldownTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
   // ── Helper: tambah nilai baru ke buffer riwayat (maks HISTORY_MAX) ────────
   function pushHistory(buf: React.MutableRefObject<number[]>, value: number) {
     buf.current = [...buf.current, value].slice(-HISTORY_MAX);
   }
 
-  // ── Lepas listener saat unmount ───────────────────────────────────────────
+  // ── Lepas listener dan timer saat unmount ─────────────────────────────────
   useEffect(() => {
     return () => {
       subscriptionRef.current?.remove();
       subscriptionRef.current = null;
+      // Bersihkan semua timer agar tidak terjadi setState setelah unmount
+      if (shakeResetTimerRef.current !== null) {
+        clearTimeout(shakeResetTimerRef.current);
+      }
+      if (shakeCooldownTimerRef.current !== null) {
+        clearTimeout(shakeCooldownTimerRef.current);
+      }
     };
   }, []);
 
@@ -307,9 +460,56 @@ export default function SensorScreen() {
       setHistoryY([...historyBufY.current]);
       setHistoryZ([...historyBufZ.current]);
 
+      // ── 6. Deteksi Goyangan ──────────────────────────────────────────────
+      //
+      // Alur:
+      //   Gerak pengguna → percepatan besar pada sumbu →
+      //   magnitude melonjak → bandingkan dengan SHAKE_THRESHOLD →
+      //   jika terlampaui dan tidak dalam cooldown: getarkan + ubah status
+      //
+      // Satuan: expo-sensors melaporkan nilai dalam g (1 g ≈ 9,8 m/s²).
+      // Magnitude = √(x² + y² + z²). Saat diam: |a| ≈ 1 g (gravitasi Z).
+      // Goyangan keras: |a| bisa mencapai 3–5 g atau lebih.
+      const magnitude = Math.sqrt(data.x ** 2 + data.y ** 2 + data.z ** 2);
+
+      if (magnitude > SHAKE_THRESHOLD && !shakeCooldownRef.current) {
+        // Aktifkan cooldown — goyangan berikutnya diabaikan selama SHAKE_COOLDOWN_MS
+        shakeCooldownRef.current = true;
+
+        // Getarkan perangkat 400 ms sebagai umpan balik taktil
+        Vibration.vibrate(400);
+
+        // Ubah status UI → "Goyangan Terdeteksi"
+        setShakeStatus('detected');
+
+        // Reset status ke "Siap" setelah SHAKE_RESET_MS
+        if (shakeResetTimerRef.current !== null) {
+          clearTimeout(shakeResetTimerRef.current);
+        }
+        shakeResetTimerRef.current = setTimeout(() => {
+          setShakeStatus('idle');
+          shakeResetTimerRef.current = null;
+        }, SHAKE_RESET_MS);
+
+        // Akhiri cooldown setelah SHAKE_COOLDOWN_MS
+        if (shakeCooldownTimerRef.current !== null) {
+          clearTimeout(shakeCooldownTimerRef.current);
+        }
+        shakeCooldownTimerRef.current = setTimeout(() => {
+          shakeCooldownRef.current = false;
+          shakeCooldownTimerRef.current = null;
+        }, SHAKE_COOLDOWN_MS);
+
+        if (__DEV__) {
+          console.log(
+            `[Shake] magnitude=${magnitude.toFixed(2)} g — melampaui threshold ${SHAKE_THRESHOLD} g`
+          );
+        }
+      }
+
       if (__DEV__) {
         console.log(
-          `[Accelerometer] x=${data.x.toFixed(2)}  y=${data.y.toFixed(2)}  z=${data.z.toFixed(2)}`
+          `[Accelerometer] x=${data.x.toFixed(2)}  y=${data.y.toFixed(2)}  z=${data.z.toFixed(2)}  |a|=${magnitude.toFixed(2)} g`
         );
       }
     });
@@ -322,6 +522,17 @@ export default function SensorScreen() {
     subscriptionRef.current?.remove();
     subscriptionRef.current = null;
     setIsListening(false);
+    // Reset status goyangan saat sensor dihentikan
+    setShakeStatus('idle');
+    if (shakeResetTimerRef.current !== null) {
+      clearTimeout(shakeResetTimerRef.current);
+      shakeResetTimerRef.current = null;
+    }
+    if (shakeCooldownTimerRef.current !== null) {
+      clearTimeout(shakeCooldownTimerRef.current);
+      shakeCooldownTimerRef.current = null;
+    }
+    shakeCooldownRef.current = false;
   }, []);
 
   // ── Toggle Mulai / Hentikan ───────────────────────────────────────────────
@@ -471,6 +682,11 @@ export default function SensorScreen() {
             </Text>
           </View>
 
+          {/* ── Banner Status Goyangan ────────────────────────────────────── */}
+          {isListening && (
+            <ShakeStatusBanner status={shakeStatus} />
+          )}
+
           {/* ── Kartu Nilai X, Y, Z (2 desimal + satuan g) ───────────────── */}
           <View
             style={styles.dataCard}
@@ -592,7 +808,7 @@ export default function SensorScreen() {
             style={styles.infoBox}
             accessibilityRole="text"
             accessibilityLabel={
-              'Informasi: Accelerometer mengukur percepatan linear perangkat pada tiga sumbu dalam satuan g sekitar 9,8 meter per detik kuadrat'
+              'Informasi: Accelerometer mengukur percepatan linear perangkat pada tiga sumbu dalam satuan g sekitar 9,8 meter per detik kuadrat. Deteksi goyangan aktif saat magnitude melebihi 2,5 g'
             }
           >
             <Ionicons
@@ -604,7 +820,9 @@ export default function SensorScreen() {
             <Text style={styles.infoBoxText} importantForAccessibility="no">
               Accelerometer mengukur percepatan linear perangkat pada tiga sumbu dalam satuan{' '}
               <Text style={styles.infoBoxBold}>g</Text> (≈ 9,8 m/s²). Saat perangkat diam dan
-              rata, sumbu Z ≈ 1 g (gravitasi bumi).
+              rata, sumbu Z ≈ 1 g (gravitasi bumi).{'\n'}
+              Goyangan terdeteksi bila magnitude {'>'}{' '}
+              <Text style={styles.infoBoxBold}>{SHAKE_THRESHOLD} g</Text>.
             </Text>
           </View>
         </ScrollView>
