@@ -78,6 +78,11 @@ export default function ProfileScreen() {
     router.push('/wishlist' as any);
   };
 
+  // ── Handler Navigasi ke Lokasi Saya ───────────────────────────────────────
+  const handleLocationPress = () => {
+    router.push('/lokasi' as any);
+  };
+
   // ── Handler Tab Navigasi ───────────────────────────────────────────────────
   const handleTabPress = (tab: TabKey) => {
     setCurrentTab(tab);
@@ -269,6 +274,41 @@ export default function ProfileScreen() {
                 </Text>
                 <Text style={styles.featureDesc} importantForAccessibility="no">
                   Barang yang ingin kamu cari atau beli
+                </Text>
+              </View>
+              <Ionicons
+                name="chevron-forward"
+                size={18}
+                color="#CBD5E1"
+                importantForAccessibility="no"
+              />
+            </Pressable>
+
+            {/* Tombol Lokasi Saya */}
+            <Pressable
+              style={({ pressed }) => [
+                styles.featureRow,
+                pressed && styles.featureRowPressed,
+              ]}
+              onPress={handleLocationPress}
+              accessibilityRole="button"
+              accessibilityLabel="Lokasi Saya, buka halaman pengambilan lokasi GPS"
+              accessibilityHint="Navigasi ke halaman untuk melihat posisi dan koordinat area kampus"
+            >
+              <View style={styles.featureIconWrapper} importantForAccessibility="no">
+                <Ionicons
+                  name="location-outline"
+                  size={18}
+                  color="#0F766E"
+                  importantForAccessibility="no"
+                />
+              </View>
+              <View style={styles.featureContent}>
+                <Text style={styles.featureLabel} importantForAccessibility="no">
+                  Lokasi Saya
+                </Text>
+                <Text style={styles.featureDesc} importantForAccessibility="no">
+                  Cek koordinat GPS dan area kampus
                 </Text>
               </View>
               <Ionicons
