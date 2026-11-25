@@ -3,11 +3,16 @@ import { ProductCard, ProductItem } from '@/components/ProductCard';
 import { StateView } from '@/components/StateView';
 import { useAuth } from '@/context/AuthContext';
 import { getProducts } from '@/services/productService';
+import {
+  addToWishlist,
+  fetchWishlistProductIds,
+  removeFromWishlist,
+} from '@/services/wishlistService';
 import { Product } from '@/types/product';
 import { ApiError } from '@/utils/apiError';
 import { Ionicons } from '@expo/vector-icons';
 import { useRouter } from 'expo-router';
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   Alert,
   FlatList,
@@ -115,6 +120,10 @@ export default function HomeScreen() {
   const [status, setStatus] = useState<RequestStatus>('loading');
   const [errorMessage, setErrorMessage] = useState<string>('');
 
+  // ── State wishlist (Set product_id untuk status ikon hati) ──────────────────
+  const [wishlistedIds, setWishlistedIds] = useState<Set<string>>(new Set());
+  const pendingWishlistRef = useRef<Set<string>>(new Set());
+
   // Dimensi jendela untuk tata letak responsif tanpa hardcode lebar piksel
   const { width, height } = useWindowDimensions();
   const isLandscape = width > height;
@@ -174,6 +183,91 @@ export default function HomeScreen() {
     // eslint-disable-next-line react-hooks/set-state-in-effect
     fetchProducts();
   }, [fetchProducts]);
+
+  // ── Muat daftar product_id wishlist saat mount dengan AbortController ──────
+  useEffect(() => {
+    const controller = new AbortController();
+
+    async function loadWishlistIds() {
+      try {
+        const ids = await fetchWishlistProductIds(controller.signal);
+        setWishlistedIds(ids);
+      } catch (err) {
+        if (err instanceof Error && err.name === 'AbortError') return;
+        // Error wishlist awal tidak menghalangi tampilan produk beranda
+        if (!(err instanceof ApiError && err.kind === 'unauthorized')) {
+          const msg =
+            err instanceof ApiError
+              ? err.message
+              : 'Gagal memuat status wishlist.';
+          Alert.alert('Info Wishlist', msg);
+        }
+      }
+    }
+
+    loadWishlistIds();
+
+    return () => {
+      controller.abort();
+    };
+  }, []);
+
+  // ── Handler toggle wishlist (optimistic update + rollback + abaikan 409) ───
+  const handleToggleWishlist = useCallback(
+    async (productId: string) => {
+      if (pendingWishlistRef.current.has(productId)) return;
+      pendingWishlistRef.current.add(productId);
+
+      const wasWishlisted = wishlistedIds.has(productId);
+
+      // Optimistic update: ikon langsung berubah saat ditekan
+      setWishlistedIds((prev) => {
+        const next = new Set(prev);
+        if (wasWishlisted) {
+          next.delete(productId);
+        } else {
+          next.add(productId);
+        }
+        return next;
+      });
+
+      try {
+        if (wasWishlisted) {
+          await removeFromWishlist(productId);
+        } else {
+          await addToWishlist(productId);
+        }
+      } catch (err) {
+        // Bila server menjawab 409 (sudah ada di wishlist), anggap sudah tersimpan
+        // dan jangan tampilkan error maupun rollback.
+        if (!wasWishlisted && err instanceof ApiError && err.status === 409) {
+          return;
+        }
+
+        // Rollback ke status sebelum ditekan bila request gagal
+        setWishlistedIds((prev) => {
+          const rollback = new Set(prev);
+          if (wasWishlisted) {
+            rollback.add(productId);
+          } else {
+            rollback.delete(productId);
+          }
+          return rollback;
+        });
+
+        if (!(err instanceof ApiError && err.kind === 'unauthorized')) {
+          const msg =
+            err instanceof ApiError
+              ? err.message
+              : 'Gagal memperbarui wishlist. Silakan coba lagi.';
+          Alert.alert('Wishlist Gagal', msg);
+        }
+      } finally {
+        pendingWishlistRef.current.delete(productId);
+      }
+    },
+    [wishlistedIds]
+  );
 
   // ── Handler interaksi ──────────────────────────────────────────────────────
   const handleSearchPress = () => {
@@ -531,7 +625,14 @@ export default function HomeScreen() {
               if (item.id.startsWith('__dummy_')) {
                 return <View style={styles.dummyCard} />;
               }
-              return <ProductCard product={item} onPress={handleProductPress} />;
+              return (
+                <ProductCard
+                  product={item}
+                  onPress={handleProductPress}
+                  isWishlisted={wishlistedIds.has(item.id)}
+                  onToggleWishlist={handleToggleWishlist}
+                />
+              );
             }}
             ListEmptyComponent={
               <StateView

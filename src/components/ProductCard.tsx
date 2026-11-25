@@ -26,9 +26,23 @@ interface ProductCardProps {
   product: ProductItem;
   onPress?: (product: ProductItem) => void;
   style?: StyleProp<ViewStyle>;
+  /** Apakah produk ini sudah ada di wishlist pengguna (opsional, default false) */
+  isWishlisted?: boolean;
+  /**
+   * Callback saat ikon hati ditekan.
+   * Menerima productId agar pemanggil tidak perlu closure terpisah.
+   * Props opsional: bila tidak diberikan, ikon hati tidak ditampilkan.
+   */
+  onToggleWishlist?: (productId: string) => void;
 }
 
-export const ProductCard: React.FC<ProductCardProps> = ({ product, onPress, style }) => {
+export const ProductCard: React.FC<ProductCardProps> = ({
+  product,
+  onPress,
+  style,
+  isWishlisted = false,
+  onToggleWishlist,
+}) => {
   const formattedPrice = new Intl.NumberFormat('id-ID', {
     style: 'currency',
     currency: 'IDR',
@@ -36,7 +50,13 @@ export const ProductCard: React.FC<ProductCardProps> = ({ product, onPress, styl
   }).format(product.price);
 
   // Tambahkan info NIM ke label aksesibilitas jika terverifikasi
-  const nimSuffix = product.isNIMVerified ? ', penjual terverifikasi NIM' : ', penjual belum terverifikasi';
+  const nimSuffix = product.isNIMVerified
+    ? ', penjual terverifikasi NIM'
+    : ', penjual belum terverifikasi';
+
+  const wishlistLabel = isWishlisted
+    ? `Hapus ${product.title} dari wishlist`
+    : `Simpan ${product.title} ke wishlist`;
 
   return (
     <Pressable
@@ -61,44 +81,107 @@ export const ProductCard: React.FC<ProductCardProps> = ({ product, onPress, styl
         />
         {/* Badge Kondisi */}
         <View style={styles.conditionBadge} importantForAccessibility="no">
-          <Text style={styles.conditionText} importantForAccessibility="no">{product.condition}</Text>
+          <Text style={styles.conditionText} importantForAccessibility="no">
+            {product.condition}
+          </Text>
         </View>
+
+        {/* Tombol Wishlist (ikon hati) — tampil hanya bila onToggleWishlist diberikan */}
+        {onToggleWishlist && (
+          <Pressable
+            style={({ pressed }) => [
+              styles.heartButton,
+              pressed && styles.heartButtonPressed,
+            ]}
+            onPress={(e) => {
+              // Mencegah event naik ke Pressable kartu (agar tidak trigger onPress kartu)
+              e.stopPropagation?.();
+              onToggleWishlist(product.id);
+            }}
+            accessibilityRole="button"
+            accessibilityLabel={wishlistLabel}
+            accessibilityHint={
+              isWishlisted
+                ? 'Ketuk untuk menghapus barang dari wishlist'
+                : 'Ketuk untuk menyimpan barang ke wishlist'
+            }
+            accessibilityState={{ selected: isWishlisted }}
+            hitSlop={{ top: 4, bottom: 4, left: 4, right: 4 }}
+          >
+            <Ionicons
+              name={isWishlisted ? 'heart' : 'heart-outline'}
+              size={20}
+              color={isWishlisted ? '#E11D48' : '#FFFFFF'}
+              importantForAccessibility="no"
+            />
+          </Pressable>
+        )}
       </View>
 
       {/* Informasi Produk — semua teks diabaikan karena label sudah lengkap di Pressable */}
       <View style={styles.contentContainer} importantForAccessibility="no">
         {/* Fakultas Badge */}
         <View style={styles.facultyBadge} importantForAccessibility="no">
-          <Text style={styles.facultyBadgeText} numberOfLines={1} importantForAccessibility="no">
+          <Text
+            style={styles.facultyBadgeText}
+            numberOfLines={1}
+            importantForAccessibility="no"
+          >
             {product.faculty}
           </Text>
         </View>
 
         {/* Judul Barang */}
-        <Text style={styles.titleText} numberOfLines={2} importantForAccessibility="no">
+        <Text
+          style={styles.titleText}
+          numberOfLines={2}
+          importantForAccessibility="no"
+        >
           {product.title}
         </Text>
 
         {/* Harga */}
-        <Text style={styles.priceText} importantForAccessibility="no">{formattedPrice}</Text>
+        <Text style={styles.priceText} importantForAccessibility="no">
+          {formattedPrice}
+        </Text>
 
         {/* Lokasi COD di Kampus */}
         <View style={styles.metaRow} importantForAccessibility="no">
-          <Ionicons name="location-sharp" size={13} color="#64748B" importantForAccessibility="no" />
-          <Text style={styles.locationText} numberOfLines={1} importantForAccessibility="no">
+          <Ionicons
+            name="location-sharp"
+            size={13}
+            color="#64748B"
+            importantForAccessibility="no"
+          />
+          <Text
+            style={styles.locationText}
+            numberOfLines={1}
+            importantForAccessibility="no"
+          >
             {product.location}
           </Text>
         </View>
 
         {/* Penjual & Verifikasi NIM */}
         <View style={styles.sellerRow} importantForAccessibility="no">
-          <Text style={styles.sellerNameText} numberOfLines={1} importantForAccessibility="no">
+          <Text
+            style={styles.sellerNameText}
+            numberOfLines={1}
+            importantForAccessibility="no"
+          >
             {product.sellerName}
           </Text>
           {product.isNIMVerified && (
             <View style={styles.verifiedBadge} importantForAccessibility="no">
-              <Ionicons name="shield-checkmark" size={12} color="#059669" importantForAccessibility="no" />
-              <Text style={styles.verifiedText} importantForAccessibility="no">NIM ✓</Text>
+              <Ionicons
+                name="shield-checkmark"
+                size={12}
+                color="#059669"
+                importantForAccessibility="no"
+              />
+              <Text style={styles.verifiedText} importantForAccessibility="no">
+                NIM ✓
+              </Text>
             </View>
           )}
         </View>
@@ -150,6 +233,24 @@ const styles = StyleSheet.create({
     fontSize: 10,
     fontWeight: '600',
     color: '#FFFFFF',
+  },
+  // Tombol hati wishlist — tap target minimal 44x44 sesuai pedoman aksesibilitas
+  heartButton: {
+    position: 'absolute',
+    bottom: 8,
+    right: 8,
+    minWidth: 44,
+    minHeight: 44,
+    width: 44,
+    height: 44,
+    borderRadius: 22,
+    backgroundColor: 'rgba(15, 23, 42, 0.55)',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  heartButtonPressed: {
+    opacity: 0.75,
+    transform: [{ scale: 0.9 }],
   },
   contentContainer: {
     flex: 1,

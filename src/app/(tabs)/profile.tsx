@@ -73,6 +73,11 @@ export default function ProfileScreen() {
     router.push('/(tabs)/sensor' as any);
   };
 
+  // ── Handler Navigasi ke Wishlist ──────────────────────────────────────────
+  const handleWishlistPress = () => {
+    router.push('/wishlist' as any);
+  };
+
   // ── Handler Tab Navigasi ───────────────────────────────────────────────────
   const handleTabPress = (tab: TabKey) => {
     setCurrentTab(tab);
@@ -229,6 +234,41 @@ export default function ProfileScreen() {
                 </Text>
                 <Text style={styles.featureDesc} importantForAccessibility="no">
                   Baca data accelerometer perangkat
+                </Text>
+              </View>
+              <Ionicons
+                name="chevron-forward"
+                size={18}
+                color="#CBD5E1"
+                importantForAccessibility="no"
+              />
+            </Pressable>
+
+            {/* Tombol Wishlist Saya */}
+            <Pressable
+              style={({ pressed }) => [
+                styles.featureRow,
+                pressed && styles.featureRowPressed,
+              ]}
+              onPress={handleWishlistPress}
+              accessibilityRole="button"
+              accessibilityLabel="Wishlist Saya, buka daftar barang yang ingin dibeli"
+              accessibilityHint="Navigasi ke halaman wishlist untuk melihat dan mengelola daftar belanja"
+            >
+              <View style={styles.featureIconWrapper} importantForAccessibility="no">
+                <Ionicons
+                  name="heart-outline"
+                  size={18}
+                  color="#0F766E"
+                  importantForAccessibility="no"
+                />
+              </View>
+              <View style={styles.featureContent}>
+                <Text style={styles.featureLabel} importantForAccessibility="no">
+                  Wishlist Saya
+                </Text>
+                <Text style={styles.featureDesc} importantForAccessibility="no">
+                  Barang yang ingin kamu cari atau beli
                 </Text>
               </View>
               <Ionicons
