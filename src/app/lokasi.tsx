@@ -14,6 +14,7 @@
  *     Location.Accuracy.Balanced.
  *  4. State loading / error / data diperbarui, lalu UI menampilkan hasil di kartu
  *     "Lokasi Saat Ini" (Latitude, Longitude, Akurasi ±x m).
+ *  5. Setelah lokasi tersedia, tombol "Lihat di Peta" aktif dan membuka rute /peta.
  *
  * Keamanan: tidak mencetak koordinat atau data sensitif ke console.
  * Aksesibilitas: accessibilityLabel, accessibilityRole, tap target minimal 44x44.
@@ -105,6 +106,11 @@ export default function LokasiScreen() {
       Linking.openSettings();
     }
   }, []);
+
+  // ── Handler: Buka halaman peta ────────────────────────────────────────────
+  const handleOpenMap = useCallback(() => {
+    router.push('/peta' as any);
+  }, [router]);
 
   const accuracyText =
     data?.accuracy !== null && data?.accuracy !== undefined
@@ -353,6 +359,32 @@ export default function LokasiScreen() {
               {loading ? 'Mengambil Lokasi...' : 'Ambil Lokasi'}
             </Text>
           </Pressable>
+
+          {/* ── Tombol "Lihat di Peta" ────────────────────────────────────
+               Aktif hanya setelah lokasi berhasil diambil.               */}
+          <Pressable
+            style={({ pressed }) => [
+              styles.mapButton,
+              pressed && styles.buttonPressed,
+              (!data || loading) && styles.buttonDisabled,
+            ]}
+            onPress={handleOpenMap}
+            disabled={!data || loading}
+            accessibilityRole="button"
+            accessibilityLabel="Lihat di Peta"
+            accessibilityHint="Membuka halaman peta interaktif yang menampilkan posisi Anda"
+            accessibilityState={{ disabled: !data || loading }}
+          >
+            <Ionicons
+              name="map-outline"
+              size={20}
+              color="#1D4ED8"
+              importantForAccessibility="no"
+            />
+            <Text style={styles.mapButtonText} importantForAccessibility="no">
+              Lihat di Peta
+            </Text>
+          </Pressable>
         </ScrollView>
       </View>
     </SafeAreaView>
@@ -583,7 +615,7 @@ const styles = StyleSheet.create({
     lineHeight: 18,
   },
 
-  // Tombol utama
+  // Tombol utama "Ambil Lokasi"
   primaryButton: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -606,6 +638,29 @@ const styles = StyleSheet.create({
     fontWeight: '700',
     color: '#FFFFFF',
   },
+
+  // Tombol "Lihat di Peta" (outlined — biru tepi, putih isi)
+  mapButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 8,
+    backgroundColor: '#FFFFFF',
+    minHeight: 48,
+    minWidth: 44,
+    borderRadius: 12,
+    paddingHorizontal: 20,
+    paddingVertical: 14,
+    borderWidth: 1.5,
+    borderColor: '#1D4ED8',
+  },
+  mapButtonText: {
+    fontSize: 15,
+    fontWeight: '700',
+    color: '#1D4ED8',
+  },
+
+  // Shared
   buttonPressed: {
     opacity: 0.85,
     transform: [{ scale: 0.98 }],

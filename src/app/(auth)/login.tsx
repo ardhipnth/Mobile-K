@@ -237,6 +237,28 @@ export default function LoginScreen() {
                 Belum punya akun? Daftar Sekarang
               </Text>
             </Pressable>
+
+            {/* ── Tombol sekunder: Buka Todo List ─────────────────────── */}
+            <Pressable
+              style={({ pressed }) => [
+                styles.todoButton,
+                pressed && styles.buttonPressed,
+              ]}
+              onPress={() => router.push('/todo' as any)}
+              accessibilityLabel="Buka Todo List"
+              accessibilityRole="button"
+              accessibilityHint="Buka fitur Todo List tanpa perlu login"
+            >
+              <Ionicons
+                name="checkbox-outline"
+                size={18}
+                color="#1D4ED8"
+                importantForAccessibility="no"
+              />
+              <Text style={styles.todoButtonText} importantForAccessibility="no">
+                Buka Todo List
+              </Text>
+            </Pressable>
           </View>
 
           {/* Footer */}
@@ -404,6 +426,25 @@ const styles = StyleSheet.create({
   },
   registerButtonText: {
     color: '#0F766E',
+    fontSize: 14,
+    fontWeight: '700',
+  },
+
+  // Todo Button (sekunder, di bawah Register)
+  todoButton: {
+    minHeight: 50,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 8,
+    borderRadius: 14,
+    borderWidth: 1.5,
+    borderColor: '#93C5FD',
+    backgroundColor: '#EFF6FF',
+    marginTop: 10,
+  },
+  todoButtonText: {
+    color: '#1D4ED8',
     fontSize: 14,
     fontWeight: '700',
   },

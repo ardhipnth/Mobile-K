@@ -29,8 +29,10 @@ function AuthGuard({ children }: { children: React.ReactNode }) {
     if (isLoading) return;
 
     const inAuthGroup = (segments[0] as string) === '(auth)';
+    // Pengecualian: rute /todo dapat dibuka tanpa login (fitur mandiri).
+    const inTodoRoute = (segments[0] as string) === 'todo';
 
-    if (!isAuthenticated && !inAuthGroup) {
+    if (!isAuthenticated && !inAuthGroup && !inTodoRoute) {
       // Belum login, arahkan ke Login
       router.replace('/(auth)/login' as any);
     } else if (isAuthenticated && inAuthGroup) {
@@ -70,6 +72,8 @@ export default function RootLayout() {
           <Stack screenOptions={{ headerShown: false }}>
             <Stack.Screen name="(auth)" options={{ headerShown: false }} />
             <Stack.Screen name="(tabs)" options={{ headerShown: false }} />
+            {/* Rute mandiri Todo — dapat dibuka tanpa login */}
+            <Stack.Screen name="todo" options={{ headerShown: false }} />
           </Stack>
         </AuthGuard>
       </AuthProvider>
